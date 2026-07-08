@@ -369,9 +369,9 @@ export const CustomerView: React.FC = () => {
       }
   };
   
-  const [orderDate, setOrderDate] = useState<'today' | 'tomorrow'>(() => {
-      if (isStoreOpen || canOrderForToday()) return 'today';
-      return 'tomorrow';
+  const [orderDayOffset, setOrderDayOffset] = useState<number>(() => {
+      if (isStoreOpen || canOrderForToday()) return 0;
+      return 1;
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [customName, setCustomName] = useState('');
@@ -566,7 +566,17 @@ export const CustomerView: React.FC = () => {
       }
   }, [orders, customer, historyOrderIds, localOrderId]);
 
-  const timeSlots = generateTimeSlots(orderDate === 'today' ? 0 : 1);
+  const timeSlots = generateTimeSlots(orderDayOffset);
+
+  const scheduledDateLabelFull = (offset: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + offset);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (offset === 0) return `${language === 'th' ? 'วันนี้' : 'Today'} (${iso})`;
+      if (offset === 1) return `${language === 'th' ? 'พรุ่งนี้' : 'Tomorrow'} (${iso})`;
+      const dow = d.toLocaleDateString(language === 'th' ? 'th-TH' : 'en-GB', { weekday: 'short' });
+      return `${dow} ${iso}`;
+  };
 
   const activeOrder = useMemo(() => {
     return orders.find(o => 
@@ -610,13 +620,13 @@ export const CustomerView: React.FC = () => {
   
   useEffect(() => {
       if (isStoreOpen) {
-          if (orderDate === 'tomorrow' && !pickupTime) {
-              setOrderDate('today');
+          if (orderDayOffset > 0 && !pickupTime) {
+              setOrderDayOffset(0);
           }
       } else {
           setAsapOrder(false); // Force pre-order when store is closed
           if (!canOrderForToday()) {
-              setOrderDate('tomorrow');
+              setOrderDayOffset(1);
           }
       }
   }, [isStoreOpen]);
@@ -954,7 +964,7 @@ export const CustomerView: React.FC = () => {
             quotationId: lalamoveQuotationId
         } : undefined,
         paymentMethod: paymentMethod,
-        pickupTime: asapOrder ? 'ASAP' : `Pre-order: ${orderDate === 'today' ? 'Today' : 'Tomorrow'} ${pickupTime || 'asap'}`,
+        pickupTime: asapOrder ? 'ASAP' : `Pre-order: ${scheduledDateLabelFull(orderDayOffset)} ${pickupTime || 'asap'}`,
         tableNumber: tableSession || undefined, 
         source: 'store',
         partnerId: partnerSession || undefined, 
@@ -2644,34 +2654,41 @@ export const CustomerView: React.FC = () => {
 
                                              {!asapOrder && (
                                                  <div className="space-y-3 pt-2.5 border-t border-dashed border-gray-100">
-                                                     <div className="flex gap-2">
-                                                         <button 
-                                                             type="button"
-                                                             onClick={() => setOrderDate('today')}
-                                                             className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition border ${orderDate === 'today' ? 'bg-brand-50 text-brand-700 border-brand-300' : 'bg-gray-50 text-gray-500 border-gray-200'}`}
+                                                     <div>
+                                                         <label className="text-[11px] font-bold text-gray-500 mb-1 block">
+                                                             {language === 'th' ? 'เลือกวันล่วงหน้า (ได้ถึง 7 วัน)' : 'Choose day (up to 7 days ahead)'}
+                                                         </label>
+                                                         <select
+                                                             className="w-full p-2.5 bg-gray-50 border rounded-lg text-sm font-bold text-gray-700 outline-none"
+                                                             value={orderDayOffset}
+                                                             onChange={e => setOrderDayOffset(parseInt(e.target.value, 10))}
                                                          >
-                                                             {language === 'th' ? 'วันนี้' : 'Today'}
-                                                         </button>
-                                                         <button 
-                                                             type="button"
-                                                             onClick={() => setOrderDate('tomorrow')}
-                                                             className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition border ${orderDate === 'tomorrow' ? 'bg-brand-50 text-brand-700 border-brand-300' : 'bg-gray-50 text-gray-500 border-gray-200'}`}
-                                                         >
-                                                             {language === 'th' ? 'พรุ่งนี้' : 'Tomorrow'}
-                                                         </button>
+                                                             {[0,1,2,3,4,5,6].map(off => (
+                                                                 <option key={off} value={off}>{scheduledDateLabelFull(off)}</option>
+                                                             ))}
+                                                         </select>
                                                      </div>
-
-                                                     <select 
-                                                        className="w-full p-2.5 bg-gray-50 border rounded-lg text-sm font-bold text-gray-700 outline-none"
-                                                        value={pickupTime}
-                                                        onChange={e => setPickupTime(e.target.value)}
-                                                     >
-                                                         {timeSlots.map(slot => (
-                                                             <option key={slot} value={slot}>
-                                                                 {language === 'th' ? (orderDate === 'tomorrow' ? 'พรุ่งนี้ เวลา ' : 'วันนี้ เวลา ') : (orderDate === 'tomorrow' ? 'Tomorrow ' : 'Today ')} {slot}
-                                                             </option>
-                                                         ))}
-                                                     </select>
+                                                     <div>
+                                                         <label className="text-[11px] font-bold text-gray-500 mb-1 block">
+                                                             {orderType === 'delivery'
+                                                               ? (language === 'th' ? 'เวลาที่ต้องการให้ของถึง' : 'Desired arrival time')
+                                                               : (language === 'th' ? 'เวลาที่จะมารับ' : 'Pickup time')}
+                                                         </label>
+                                                         <select
+                                                             className="w-full p-2.5 bg-gray-50 border rounded-lg text-sm font-bold text-gray-700 outline-none"
+                                                             value={pickupTime}
+                                                             onChange={e => setPickupTime(e.target.value)}
+                                                         >
+                                                             {timeSlots.map(slot => (
+                                                                 <option key={slot} value={slot}>{slot} {language === 'th' ? 'น.' : ''}</option>
+                                                             ))}
+                                                         </select>
+                                                         {timeSlots.length === 0 && (
+                                                             <p className="text-[10px] text-amber-600 font-bold mt-1">
+                                                                 {language === 'th' ? 'วันนี้หมดเวลาสั่งแล้ว เลือกวันถัดไปได้ครับ' : 'No slots left today — choose another day'}
+                                                             </p>
+                                                         )}
+                                                     </div>
                                                  </div>
                                              )}
                                          </div>
