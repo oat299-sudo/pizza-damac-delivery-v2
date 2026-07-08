@@ -112,6 +112,7 @@ export interface Order {
   lalamove_quotation_id?: string;
   lalamove_order_id?: string;
   lalamove_share_link?: string;
+  delivery_vehicle?: 'motorcycle' | 'car' | 'pickup';
   delivery_status?: string; // 'pending','assigning','ongoing','picked_up','completed','canceled'
   driver_name?: string;
   driver_phone?: string;
