@@ -142,9 +142,7 @@ export async function fetchRealLalamoveQuote(
   customerPhone: string
 ): Promise<LalamoveQuote[] | null> {
   try {
-    const vehicles: ('motorcycle' | 'car' | 'pickup')[] = ['motorcycle', 'car', 'pickup'];
-    
-    const quotePromises = vehicles.map(async (v) => {
+    const fetchQuoteFor = async (v: 'motorcycle' | 'car' | 'pickup') => {
       try {
         const lalaServiceType = v === 'motorcycle' ? 'MOTORCYCLE' : v === 'car' ? 'CAR' : 'PICKUP';
         
@@ -213,9 +211,19 @@ export async function fetchRealLalamoveQuote(
         console.warn(`Failed to fetch real Lalamove quote for ${v}`, err);
         return null;
       }
-    });
+    };
 
-    const results = await Promise.all(quotePromises);
+    // Motorcycle FIRST - it's the vehicle we actually dispatch and the fee the
+    // customer sees at checkout. Fetch it alone (with one retry) instead of a
+    // 3-request parallel burst, so the customer price falls back to the rough
+    // estimator far less often.
+    let mcQuote = await fetchQuoteFor('motorcycle');
+    if (!mcQuote) {
+        await new Promise(r => setTimeout(r, 1200));
+        mcQuote = await fetchQuoteFor('motorcycle');
+    }
+    const others = await Promise.all([fetchQuoteFor('car'), fetchQuoteFor('pickup')]);
+    const results = [mcQuote, ...others];
     const validQuotes = results.filter((q): q is LalamoveQuote => q !== null);
     return validQuotes.length > 0 ? validQuotes : null;
   } catch (error) {
