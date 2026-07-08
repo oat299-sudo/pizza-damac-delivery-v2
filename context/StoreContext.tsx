@@ -67,7 +67,7 @@ interface StoreContextType {
     type: OrderType, 
     details?: {
       note?: string;
-      delivery?: { address: string; zoneName: string; fee: number | 'pending'; lat?: number; lng?: number; quotationId?: string; };
+      delivery?: { address: string; zoneName: string; fee: number | 'pending'; lat?: number; lng?: number; quotationId?: string; vehicleType?: 'motorcycle' | 'car' | 'pickup'; };
       paymentMethod?: PaymentMethod;
       pickupTime?: string;
       tableNumber?: string;
@@ -1853,6 +1853,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   deliveryLng: d.dropoff_lng || dLng,
                   delivery_type: d.delivery_type,
                   lalamove_quotation_id: d.lalamove_quotation_id,
+                  delivery_vehicle: d.delivery_vehicle,
                   lalamove_order_id: d.lalamove_order_id,
                   lalamove_share_link: d.lalamove_share_link,
                   delivery_status: d.delivery_status
@@ -2530,7 +2531,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     type: OrderType, 
     details?: {
       note?: string;
-      delivery?: { address: string; zoneName: string; fee: number | 'pending'; lat?: number; lng?: number; quotationId?: string; };
+      delivery?: { address: string; zoneName: string; fee: number | 'pending'; lat?: number; lng?: number; quotationId?: string; vehicleType?: 'motorcycle' | 'car' | 'pickup'; };
       paymentMethod?: PaymentMethod;
       pickupTime?: string;
       tableNumber?: string;
@@ -2747,6 +2748,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           dropoff_lng: details?.delivery?.lng,
           delivery_type: type === 'delivery' ? 'delivery' : (type === 'pickup' ? 'pickup' : undefined),
           lalamove_quotation_id: details?.delivery?.quotationId,
+          delivery_vehicle: details?.delivery?.vehicleType,
           delivery_status: type === 'delivery' ? 'pending' : undefined,
           paymentMethod: details?.paymentMethod,
           pickupTime: details?.pickupTime,
@@ -2787,6 +2789,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                  dropoff_lng: newOrder.dropoff_lng,
                  delivery_type: newOrder.delivery_type,
                  lalamove_quotation_id: newOrder.lalamove_quotation_id,
+                 delivery_vehicle: newOrder.delivery_vehicle,
                  delivery_status: newOrder.delivery_status,
                  delivery_fee: newOrder.deliveryFee === 'pending' ? null : newOrder.deliveryFee,
                  payment_method: newOrder.paymentMethod,
