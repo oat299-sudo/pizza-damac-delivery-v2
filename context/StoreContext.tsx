@@ -3195,7 +3195,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   
   const generateTimeSlots = (dateOffset: number = 0) => {
       const slots: string[] = [];
-      const startHour = OPERATING_HOURS.open;
+      const startHour = Math.max(OPERATING_HOURS.open, 12); // pre-order slots start from noon
       const endHour = OPERATING_HOURS.close;
       const now = new Date();
       
