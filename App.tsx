@@ -54,11 +54,11 @@ const MainLayout = () => {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">{t('username')}</label>
+              <label className="text-xs font-bold text-gray-500 uppercase">Email</label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input
-                  type="text"
+                  type="email"
                   value={username}
                   onChange={(e) => {
                     setUsername(e.target.value.trim()); // Trim whitespace
