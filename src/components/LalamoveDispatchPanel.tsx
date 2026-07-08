@@ -16,7 +16,9 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
   const { storeSettings } = useStore();
   const [distance, setDistance] = useState<number>(0);
   const [quotes, setQuotes] = useState<LalamoveQuote[]>([]);
-  const [selectedVehicle, setSelectedVehicle] = useState<'motorcycle' | 'car' | 'pickup'>('motorcycle');
+  const [selectedVehicle, setSelectedVehicle] = useState<'motorcycle' | 'car' | 'pickup'>(
+    order.delivery_vehicle === 'car' ? 'car' : order.delivery_vehicle === 'pickup' ? 'pickup' : 'motorcycle'
+  ); // default to what the CUSTOMER already chose at checkout
   const [isBooking, setIsBooking] = useState(false);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [apiMessage, setApiMessage] = useState<string>('');
@@ -220,6 +222,14 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
           <p className="font-bold text-gray-500 uppercase text-sm">
             {language === 'th' ? 'เลือกประเภทรถเพื่อคำนวณราคาและเรียกไรเดอร์' : 'Select vehicle to book:'}
           </p>
+
+          {order.delivery_vehicle && (
+            <div className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5">
+              👤 {language === 'th'
+                  ? `ลูกค้าเลือกไว้ตอนสั่ง: ${order.delivery_vehicle === 'car' ? '🚗 รถยนต์' : order.delivery_vehicle === 'pickup' ? '🛻 รถกระบะ' : '🛵 มอเตอร์ไซค์'}${typeof order.deliveryFee === 'number' ? ` (ค่าส่งที่ลูกค้าเห็น ฿${order.deliveryFee})` : ''}`
+                  : `Customer chose: ${order.delivery_vehicle}${typeof order.deliveryFee === 'number' ? ` (saw ฿${order.deliveryFee})` : ''}`}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-1.5">
             {quotes.map((q) => (
