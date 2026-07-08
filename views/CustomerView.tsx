@@ -404,6 +404,7 @@ export const CustomerView: React.FC = () => {
   const [qrAmount, setQrAmount] = useState(0);
 
   const [lalamoveQuotationId, setLalamoveQuotationId] = useState<string | undefined>(undefined);
+  const [feeIsRealQuote, setFeeIsRealQuote] = useState<boolean>(false); // true = fee is the REAL Lalamove price (not an estimate)
 
   useEffect(() => {
       let isMounted = true;
@@ -418,12 +419,13 @@ export const CustomerView: React.FC = () => {
               // Try real quote first
               fetchRealLalamoveQuote(deliveryLat, deliveryLng, deliveryAddress, customer?.name || 'Customer', deliveryPhone).then(realQuotes => {
                   if (isMounted) {
-                      if (realQuotes && realQuotes.length > 0) {
-                          const mcQuote = realQuotes.find(q => q.vehicleType === 'motorcycle');
-                          if (mcQuote) {
-                              setDeliveryFee(mcQuote.totalFare);
-                              setLalamoveQuotationId(mcQuote.quotationId);
-                          }
+                      const mcQuote = (realQuotes && realQuotes.length > 0) ? realQuotes.find(q => q.vehicleType === 'motorcycle') : undefined;
+                      if (mcQuote) {
+                          setDeliveryFee(mcQuote.totalFare);
+                          setLalamoveQuotationId(mcQuote.quotationId);
+                          setFeeIsRealQuote(true);
+                          // Show the REAL road distance from Lalamove instead of the straight-line estimate
+                          if (mcQuote.distanceKm && mcQuote.distanceKm > 0) setDeliveryDistanceKm(mcQuote.distanceKm);
                       } else {
                           // Fallback to simulator
                           const quotes = getLalamoveQuote(d);
@@ -431,6 +433,7 @@ export const CustomerView: React.FC = () => {
                           const calculatedFee = mcQuote ? mcQuote.totalFare : Math.round(33 + Math.ceil(d) * (storeSettings.deliveryFeePerKm ?? 10));
                           setDeliveryFee(calculatedFee);
                           setLalamoveQuotationId(undefined);
+                          setFeeIsRealQuote(false);
                       }
                   }
               });
@@ -444,6 +447,7 @@ export const CustomerView: React.FC = () => {
           setDeliveryFee(null);
           setDeliveryLocationName('');
           setLalamoveQuotationId(undefined);
+          setFeeIsRealQuote(false);
       }
       return () => { isMounted = false; };
   }, [hasMapPin, deliveryLat, deliveryLng, orderType, storeSettings]);
@@ -2880,13 +2884,20 @@ export const CustomerView: React.FC = () => {
                                 </div>
                                 <div className="flex flex-col mb-2 text-sm text-brand-600 font-bold border-b border-gray-100 pb-2 gap-1.5">
                                     <div className="flex justify-between items-center w-full">
-                                        <span>+ Delivery Fee ({deliveryDistanceKm.toFixed(1)} km)</span>
+                                        <span>+ Delivery Fee ({deliveryDistanceKm.toFixed(1)} km{feeIsRealQuote ? (language === 'th' ? ' เส้นทางจริง' : ' road route') : ''})</span>
                                         <span>฿{deliveryFee}</span>
                                     </div>
-                                    <div className="text-[10px] font-normal leading-tight text-brand-500 bg-brand-50 p-1.5 rounded flex items-start gap-1 w-full">
-                                        <AlertTriangle size={12} className="shrink-0 mt-px text-brand-500/80"/>
-                                        <span>{language === 'th' ? 'ค่าจัดส่งนี้เป็นการประเมินเบื้องต้น ทางร้านจะตรวจสอบเส้นทางจริงจาก Google Map และแจ้งค่าขนส่งที่ถูกต้องอีกครั้ง' : 'Fee is estimated. The exact delivery fee will be confirmed after checking Google Maps.'}</span>
-                                    </div>
+                                    {feeIsRealQuote ? (
+                                        <div className="text-[10px] font-normal leading-tight text-green-700 bg-green-50 p-1.5 rounded flex items-start gap-1 w-full">
+                                            <span className="shrink-0">✅</span>
+                                            <span>{language === 'th' ? 'ราคาไรเดอร์ Lalamove จริง คำนวณจากเส้นทางถนนจริงแล้ว — ชำระตามนี้ ไม่มีบวกเพิ่มภายหลัง' : 'Real Lalamove rider price based on the actual road route - this is the final fee, no surprises.'}</span>
+                                        </div>
+                                    ) : (
+                                        <div className="text-[10px] font-normal leading-tight text-brand-500 bg-brand-50 p-1.5 rounded flex items-start gap-1 w-full">
+                                            <AlertTriangle size={12} className="shrink-0 mt-px text-brand-500/80"/>
+                                            <span>{language === 'th' ? 'ค่าจัดส่งนี้เป็นการประเมินเบื้องต้นจากระยะเส้นตรง ราคาจริงคิดตามเส้นทางถนนของ Lalamove ซึ่งอาจสูงกว่านี้ ทางร้านจะยืนยันราคาที่แน่นอนอีกครั้ง' : 'This is a preliminary straight-line estimate. The real fee follows the Lalamove road route and may be higher - the store will confirm the exact fee.'}</span>
+                                        </div>
+                                    )}
                                 </div>
                                 {calculatedDiscount > 0 && (
                                     <div className="flex justify-between items-center mb-1.5 text-sm font-bold text-green-600">

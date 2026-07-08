@@ -4931,6 +4931,49 @@ export const POSView: React.FC = () => {
                                         {language === 'th' ? 'เลือกความกว้างกระดาษเครื่องพิมพ์ความร้อนที่คุณใช้อยู่ เพื่อจัดสัดส่วนใบเสร็จให้สวยงาม ไม่ตกขอบกระดาษ' : 'Choose your physical thermal printer paper width so that receipt formats align perfectly without margins clipping.'}
                                     </p>
 
+                                    {/* One-tap preset for the shop's Welltech G5 Bluetooth printer */}
+                                    <div className="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-4 space-y-2.5">
+                                        <p className="font-bold text-sm text-emerald-900 flex items-center gap-1.5">
+                                            ⚡ {language === 'th' ? 'ตั้งค่าด่วน: Welltech G5 (Bluetooth)' : 'Quick Setup: Welltech G5 (Bluetooth)'}
+                                        </p>
+                                        <p className="text-xs text-emerald-800 leading-relaxed">
+                                            {language === 'th'
+                                                ? 'กดปุ่มเดียว ระบบตั้งค่าให้ครบ: โหมด Bluetooth + รหัสภาษาไทย Code Page 26 (ค่าที่ถูกต้องของ Welltech G5) + เปิดพิมพ์ใบเสร็จอัตโนมัติ — เลือกปุ่มตามหน้ากว้างกระดาษของเครื่อง เสร็จแล้วกด "ค้นหา & เชื่อมต่อเครื่องพิมพ์" ด้านล่างอีก 1 ครั้ง'
+                                                : 'One tap applies every Welltech G5 setting: Bluetooth mode + Thai Code Page 26 + auto-print. Pick your paper width, then tap "Search & Connect" below once.'}
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    setPrinterType('bluetooth');
+                                                    setThaiCodePage('tis620-26');
+                                                    setPaperSize('58mm');
+                                                    setAutoPrintNewOrders(true);
+                                                    alert(language === 'th' ? '✅ ตั้งค่า Welltech G5 (กระดาษ 58mm) เรียบร้อย!\n\nขั้นตอนสุดท้าย: เลื่อนลงไปกดปุ่ม "ค้นหา & เชื่อมต่อเครื่องพิมพ์" เลือก Printer001 หนึ่งครั้ง แล้วลองพิมพ์ใบทดสอบ' : '✅ Welltech G5 (58mm) configured! Now tap "Search & Connect" below, pick Printer001, then print a test slip.');
+                                                }}
+                                                className="flex-1 bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-lg text-sm hover:bg-emerald-700 active:scale-95 transition-all"
+                                            >
+                                                🖨️ G5 {language === 'th' ? 'กระดาษ 58mm' : 'paper 58mm'}
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setPrinterType('bluetooth');
+                                                    setThaiCodePage('tis620-26');
+                                                    setPaperSize('80mm');
+                                                    setAutoPrintNewOrders(true);
+                                                    alert(language === 'th' ? '✅ ตั้งค่า Welltech G5 (กระดาษ 80mm) เรียบร้อย!\n\nขั้นตอนสุดท้าย: เลื่อนลงไปกดปุ่ม "ค้นหา & เชื่อมต่อเครื่องพิมพ์" เลือก Printer001 หนึ่งครั้ง แล้วลองพิมพ์ใบทดสอบ' : '✅ Welltech G5 (80mm) configured! Now tap "Search & Connect" below, pick Printer001, then print a test slip.');
+                                                }}
+                                                className="flex-1 bg-emerald-500 text-white font-bold py-2.5 px-3 rounded-lg text-sm hover:bg-emerald-600 active:scale-95 transition-all"
+                                            >
+                                                🖨️ G5 {language === 'th' ? 'กระดาษ 80mm' : 'paper 80mm'}
+                                            </button>
+                                        </div>
+                                        <p className="text-[11px] text-emerald-700 leading-relaxed">
+                                            {language === 'th'
+                                                ? '* ไม่แน่ใจขนาดกระดาษ: G5 รุ่นพกพาส่วนใหญ่ใช้ 58mm — ถ้าพิมพ์แล้วใบเสร็จผิดสัดส่วน กดอีกปุ่มแทนได้เลย และถ้าภาษาไทยยังเพี้ยนอยู่ ให้เปลี่ยน "รหัสภาษาไทย" เป็นโหมดกราฟิก (Graphic-58/80) ซึ่งชัวร์ 100% ทุกเครื่อง'
+                                                : '* Not sure about paper width? Most portable G5s use 58mm - if the layout looks wrong just tap the other button. If Thai still garbles, switch the Thai code page to Graphic mode (works on every printer).'}
+                                        </p>
+                                    </div>
+
                                     {/* Multi-Tablet Setup & Alien Characters Troubleshooting Guide */}
                                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 space-y-2 leading-relaxed font-sans text-left">
                                         <p className="font-bold text-sm flex items-center gap-1.5 text-amber-950">
