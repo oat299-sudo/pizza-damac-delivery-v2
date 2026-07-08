@@ -948,17 +948,35 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const writeBtInChunks = async (characteristic: any, data: Uint8Array) => {
-      // Dynamic high-performance BLE chunk writing:
-      // Text mode (< 1500 bytes) uses 120-byte chunks and 3ms delay for instant prints.
-      // Graphic mode (> 1500 bytes) uses 96-byte chunks and 8ms delay for fast, buffered graphics without choke.
+      // Reliable BLE chunk writing (fix for garbled "alien language" receipts):
+      // The old fast settings (120 bytes / 3ms) could overflow the printer's small
+      // Bluetooth buffer — dropped bytes corrupt the ESC/POS command stream, the
+      // code-page command gets lost, and the printer falls into random glyphs
+      // (Chinese/symbol garbage). Slower, safer pacing fixes this.
+      // Text mode (< 1500 bytes): 64-byte chunks + 15ms delay (still < 1s per receipt).
+      // Graphic mode (> 1500 bytes): 96-byte chunks + 12ms delay.
       const isLarge = data.length > 1500;
-      const chunkSize = isLarge ? 96 : 120;
-      const delay = isLarge ? 8 : 3;
-      
+      const chunkSize = isLarge ? 96 : 64;
+      const delay = isLarge ? 12 : 15;
+
       for (let i = 0; i < data.length; i += chunkSize) {
           const chunk = data.slice(i, i + chunkSize);
           await characteristic.writeValue(chunk);
           await new Promise(r => setTimeout(r, delay)); // Micro-delay to avoid buffer overflow
+      }
+  };
+
+  // Flush stale/corrupted bytes in the printer buffer before starting a new job.
+  // CAN (0x18) aborts any half-finished data left from a previous interrupted
+  // print, ESC @ (0x1B 0x40) re-initializes the printer, and the short pause
+  // lets it settle. Prevents "alien language" receipts that happen when a new
+  // job is appended onto a broken previous stream (e.g. after sleep/reconnect).
+  const purgePrinterBuffer = async (characteristic: any) => {
+      try {
+          await characteristic.writeValue(new Uint8Array([0x18, 0x1B, 0x40]));
+          await new Promise(r => setTimeout(r, 120));
+      } catch (e) {
+          console.warn("Printer buffer purge skipped:", e);
       }
   };
 
@@ -995,6 +1013,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                       } else {
                           escPosBytes = generateEscPosData(payload, language);
                       }
+                      await purgePrinterBuffer(autoChar);
                       await writeBtInChunks(autoChar, escPosBytes);
                       return; // Successfully printed after auto-reconnect!
                   }
@@ -1014,6 +1033,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   } else {
                       escPosBytes = generateEscPosData(payload, language);
                   }
+                  await purgePrinterBuffer(btCharacteristic);
                   await writeBtInChunks(btCharacteristic, escPosBytes);
                   return; // Successfully printed directly via Bluetooth!
               } catch (err: any) {
@@ -1064,6 +1084,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                       } else {
                           escPosBytes = generateKitchenEscPosData(order, language);
                       }
+                      await purgePrinterBuffer(autoChar);
                       await writeBtInChunks(autoChar, escPosBytes);
                       return; // Successfully printed after auto-reconnect!
                   }
@@ -1083,6 +1104,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   } else {
                       escPosBytes = generateKitchenEscPosData(order, language);
                   }
+                  await purgePrinterBuffer(btCharacteristic);
                   await writeBtInChunks(btCharacteristic, escPosBytes);
                   return; // Successfully printed kitchen ticket directly via Bluetooth!
               } catch (err: any) {
@@ -1888,7 +1910,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if (!isSupabaseConfigured || !customer) return;
       try {
           // Fetch latest profile including addresses
-          const { data } = await supabase.from('customers').select('*').eq('phone', customer.phone).single();
+          const { data } = await supabase.rpc('loyalty_lookup', { p_phone: customer.phone }).single();
           if (data) {
               // Look up if there are any locally assigned coupons
               let localCoupons = [];
@@ -2203,7 +2225,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (profile.pdpaAccepted !== undefined) payload.pdpa_accepted = profile.pdpaAccepted;
             if (profile.savedAddresses !== undefined) payload.saved_addresses = profile.savedAddresses;
 
-            let { error: upsertError } = await supabase.from('customers').upsert(payload);
+            let { error: upsertError } = await supabase.rpc('loyalty_upsert', { p: payload });
             if (upsertError) {
                 // Resilient fallback logic: If db schema is older and lacks pdpa_accepted, saved_addresses or coupons
                 if (upsertError.message && upsertError.message.includes("column") && 
@@ -2213,7 +2235,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     delete strippedPayload.pdpa_accepted;
                     delete strippedPayload.saved_addresses;
                     delete strippedPayload.coupons;
-                    const { error: retryError } = await supabase.from('customers').upsert(strippedPayload);
+                    const { error: retryError } = await supabase.rpc('loyalty_upsert', { p: strippedPayload });
                     upsertError = retryError;
                 }
             }
@@ -2241,7 +2263,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if (isSupabaseConfigured) {
           // Check if user exists
           try {
-              const { data } = await supabase.from('customers').select('*').eq('phone', newProfile.phone).single();
+              const { data } = await supabase.rpc('loyalty_lookup', { p_phone: newProfile.phone }).single();
               if (data) {
                   existingPoints = data.loyalty_points;
                   existingHistory = data.order_history || [];
@@ -2299,7 +2321,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const customerLogin = async (phone: string, pass: string): Promise<boolean> => {
       // First try DB if connected
       if (isSupabaseConfigured) {
-          const { data } = await supabase.from('customers').select('*').eq('phone', phone).single();
+          const { data } = await supabase.rpc('loyalty_lookup', { p_phone: phone }).single();
           if (data && data.password === pass) {
               // Look up if there are any locally assigned coupons
               let localCoupons = [];
@@ -2468,10 +2490,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       // Sync to DB if connected
       if (isSupabaseConfigured) {
           try {
-              const { error } = await supabase.from('customers').update({ coupons }).eq('phone', customerPhone);
+              const { error } = await supabase.rpc('loyalty_update', { p_phone: customerPhone, p: { coupons } });
               
               // We also back up to saved_favorites in both cases to make sure it's 100% robust
-              const { data } = await supabase.from('customers').select('saved_favorites').eq('phone', customerPhone).single();
+              const { data } = await supabase.rpc('loyalty_lookup', { p_phone: customerPhone }).single();
               const rawFavorites = data?.saved_favorites || [];
               const cleanFavorites = rawFavorites.filter((f: any) => f.id !== "SYSTEM_COUPONS_BACKUP");
               const backupItem = {
@@ -2481,7 +2503,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   toppings: []
               };
               const favoritesWithBackup = [...cleanFavorites, backupItem];
-              await supabase.from('customers').update({ saved_favorites: favoritesWithBackup }).eq('phone', customerPhone);
+              await supabase.rpc('loyalty_update', { p_phone: customerPhone, p: { saved_favorites: favoritesWithBackup } });
           } catch(e) { console.error(e); }
       }
   };
@@ -2826,7 +2848,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               // Retrieve from Supabase if DB is active and not found yet
               if (!targetCustomerProfile && isSupabaseConfigured) {
                   try {
-                      const { data } = await supabase.from('customers').select('*').eq('phone', targetPhone).single();
+                      const { data } = await supabase.rpc('loyalty_lookup', { p_phone: targetPhone }).single();
                       if (data) {
                           targetCustomerProfile = {
                               phone: data.phone,
@@ -2905,12 +2927,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   // Save to Supabase
                   if (isSupabaseConfigured) {
                       try {
-                          await supabase.from('customers').update({
+                          await supabase.rpc('loyalty_update', { p_phone: targetPhone, p: {
                               loyalty_points: updatedCustomerProfile.loyaltyPoints,
                               order_history: updatedCustomerProfile.orderHistory,
                               saved_addresses: updatedCustomerProfile.savedAddresses,
                               coupons: updatedCustomerProfile.coupons
-                          }).eq('phone', targetPhone);
+                          } });
                       } catch(e) {}
                   }
               }
