@@ -1311,45 +1311,44 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // --- Auth State ---
-  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
-    const authExpiry = localStorage.getItem('damac_auth_expiry');
-    if (authExpiry && parseInt(authExpiry) > Date.now()) {
-      return true;
-    }
-    localStorage.removeItem('damac_auth_expiry');
-    return false;
-  });
+  // --- Auth State (Supabase Auth = the staff identity the database trusts) ---
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
 
-  const adminLogin = async (u: string, p: string) => {
-    // Check locally first for fallback/legacy
-    if (u === 'oatto' && p === 'Wachirus299*') {
-        setIsAdminLoggedIn(true);
-        localStorage.setItem('damac_auth_expiry', (Date.now() + 12 * 60 * 60 * 1000).toString());
-        return true;
-    }
-    
-    // Check with server
+  // Restore an existing staff session on load + track sign in/out.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let active = true;
+    supabase.auth.getSession().then(({ data }: any) => {
+      if (active) setIsAdminLoggedIn(!!(data && data.session));
+    }).catch(() => {});
+    const { data: authSub } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+      setIsAdminLoggedIn(!!session);
+    });
+    return () => { active = false; try { authSub?.subscription?.unsubscribe(); } catch (e) {} };
+  }, []);
+
+  // Staff sign in with EMAIL + PASSWORD via Supabase Auth. This makes every DB
+  // request from this browser run as an authenticated staff user, which the new
+  // RLS policies require for POS / Kitchen. Customers never sign in (they stay public).
+  const adminLogin = async (email: string, password: string) => {
+    if (!isSupabaseConfigured) return false;
     try {
-      const response = await fetch('/api/verify-pin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: p, username: u })
-      });
-      const data = await response.json();
-      if (data.success) {
-        setIsAdminLoggedIn(true);
-        localStorage.setItem('damac_auth_expiry', (Date.now() + 12 * 60 * 60 * 1000).toString());
-        return true;
+      const { data, error } = await supabase.auth.signInWithPassword({ email: (email || '').trim(), password });
+      if (error || !data || !data.session) {
+        console.warn('Staff login failed:', error && error.message);
+        return false;
       }
+      setIsAdminLoggedIn(true);
+      localStorage.removeItem('damac_auth_expiry'); // remove old client-only flag
+      return true;
     } catch (e) {
       console.error('Login error', e);
+      return false;
     }
-    
-    return false;
   };
 
-  const adminLogout = () => {
+  const adminLogout = async () => {
+    try { await supabase.auth.signOut(); } catch (e) { console.error('Logout error', e); }
     setIsAdminLoggedIn(false);
     localStorage.removeItem('damac_auth_expiry');
     sessionStorage.removeItem('damac_auth');
