@@ -405,6 +405,8 @@ export const CustomerView: React.FC = () => {
 
   const [lalamoveQuotationId, setLalamoveQuotationId] = useState<string | undefined>(undefined);
   const [feeIsRealQuote, setFeeIsRealQuote] = useState<boolean>(false); // true = fee is the REAL Lalamove price (not an estimate)
+  const [availableQuotes, setAvailableQuotes] = useState<any[]>([]); // all vehicle quotes (motorcycle/car/pickup)
+  const [selectedVehicle, setSelectedVehicle] = useState<'motorcycle' | 'car' | 'pickup'>('motorcycle');
 
   useEffect(() => {
       let isMounted = true;
@@ -419,20 +421,19 @@ export const CustomerView: React.FC = () => {
               // Try real quote first
               fetchRealLalamoveQuote(deliveryLat, deliveryLng, deliveryAddress, customer?.name || 'Customer', deliveryPhone).then(realQuotes => {
                   if (isMounted) {
-                      const mcQuote = (realQuotes && realQuotes.length > 0) ? realQuotes.find(q => q.vehicleType === 'motorcycle') : undefined;
-                      if (mcQuote) {
-                          setDeliveryFee(mcQuote.totalFare);
-                          setLalamoveQuotationId(mcQuote.quotationId);
+                      if (realQuotes && realQuotes.length > 0) {
+                          setAvailableQuotes(realQuotes);
                           setFeeIsRealQuote(true);
-                          // Show the REAL road distance from Lalamove instead of the straight-line estimate
-                          if (mcQuote.distanceKm && mcQuote.distanceKm > 0) setDeliveryDistanceKm(mcQuote.distanceKm);
                       } else {
-                          // Fallback to simulator
+                          // Fallback to simulator (customer can still pick a vehicle)
                           const quotes = getLalamoveQuote(d);
-                          const mcQuote = quotes.find(q => q.vehicleType === 'motorcycle');
-                          const calculatedFee = mcQuote ? mcQuote.totalFare : Math.round(33 + Math.ceil(d) * (storeSettings.deliveryFeePerKm ?? 10));
-                          setDeliveryFee(calculatedFee);
-                          setLalamoveQuotationId(undefined);
+                          if (quotes.length > 0) {
+                              setAvailableQuotes(quotes);
+                          } else {
+                              setAvailableQuotes([]);
+                              setDeliveryFee(Math.round(33 + Math.ceil(d) * (storeSettings.deliveryFeePerKm ?? 10)));
+                              setLalamoveQuotationId(undefined);
+                          }
                           setFeeIsRealQuote(false);
                       }
                   }
@@ -448,9 +449,24 @@ export const CustomerView: React.FC = () => {
           setDeliveryLocationName('');
           setLalamoveQuotationId(undefined);
           setFeeIsRealQuote(false);
+          setAvailableQuotes([]);
+          setSelectedVehicle('motorcycle');
       }
       return () => { isMounted = false; };
   }, [hasMapPin, deliveryLat, deliveryLng, orderType, storeSettings]);
+
+  // Apply the price of the vehicle the customer selected (default: motorcycle)
+  useEffect(() => {
+      if (availableQuotes.length === 0) return;
+      const q = availableQuotes.find((x: any) => x.vehicleType === selectedVehicle)
+          || availableQuotes.find((x: any) => x.vehicleType === 'motorcycle')
+          || availableQuotes[0];
+      if (q) {
+          setDeliveryFee(q.totalFare);
+          setLalamoveQuotationId(q.quotationId);
+          if (q.distanceKm && q.distanceKm > 0) setDeliveryDistanceKm(q.distanceKm);
+      }
+  }, [availableQuotes, selectedVehicle]);
 
   const handleDownloadQR = (id: string, refNo?: string) => {
       const canvas = document.getElementById(id) as HTMLCanvasElement | null;
@@ -965,7 +981,8 @@ export const CustomerView: React.FC = () => {
             fee: deliveryFee || 'pending',
             lat: deliveryLat,
             lng: deliveryLng,
-            quotationId: lalamoveQuotationId
+            quotationId: lalamoveQuotationId,
+            vehicleType: selectedVehicle
         } : undefined,
         paymentMethod: paymentMethod,
         pickupTime: asapOrder ? 'ASAP' : `Pre-order: ${scheduledDateLabelFull(orderDayOffset)} ${pickupTime || 'asap'}`,
@@ -2883,6 +2900,25 @@ export const CustomerView: React.FC = () => {
                                     <span>฿{cartTotal}</span>
                                 </div>
                                 <div className="flex flex-col mb-2 text-sm text-brand-600 font-bold border-b border-gray-100 pb-2 gap-1.5">
+                                    {availableQuotes.length > 1 && (
+                                        <div className="w-full">
+                                            <div className="text-[11px] font-bold text-gray-500 mb-1">{language === 'th' ? '🚚 เลือกประเภทรถส่ง (ออเดอร์ใหญ่/ระยะไกล แนะนำรถยนต์)' : '🚚 Choose delivery vehicle (big/far orders: car recommended)'}</div>
+                                            <div className="flex gap-1.5">
+                                                {availableQuotes.map((q: any) => (
+                                                    <button
+                                                        key={q.vehicleType}
+                                                        type="button"
+                                                        onClick={() => setSelectedVehicle(q.vehicleType)}
+                                                        className={`flex-1 px-2 py-1.5 rounded-lg border text-center transition-all ${selectedVehicle === q.vehicleType ? 'bg-brand-500 text-white border-brand-500 shadow-md' : 'bg-white text-gray-600 border-gray-200'}`}
+                                                    >
+                                                        <div className="text-base leading-none">{q.vehicleType === 'motorcycle' ? '🛵' : q.vehicleType === 'car' ? '🚗' : '🛻'}</div>
+                                                        <div className="text-[10px] font-bold mt-0.5">{language === 'th' ? (q.vehicleType === 'motorcycle' ? 'มอเตอร์ไซค์' : q.vehicleType === 'car' ? 'รถยนต์' : 'รถกระบะ') : q.vehicleType}</div>
+                                                        <div className="text-[11px] font-extrabold">฿{q.totalFare}</div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="flex justify-between items-center w-full">
                                         <span>+ Delivery Fee ({deliveryDistanceKm.toFixed(1)} km{feeIsRealQuote ? (language === 'th' ? ' เส้นทางจริง' : ' road route') : ''})</span>
                                         <span>฿{deliveryFee}</span>
