@@ -1948,7 +1948,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   orderHistory: data.order_history || [],
                   pdpaAccepted: data.pdpa_accepted,
                   savedAddresses: data.saved_addresses || [],
-                  coupons: (data.coupons && data.coupons.length > 0) ? data.coupons : (backupCoupons.length > 0 ? backupCoupons : (localCoupons.length > 0 ? localCoupons : generateInitialCoupons()))
+                  coupons: Array.isArray(data.coupons) ? data.coupons : (backupCoupons.length > 0 ? backupCoupons : (localCoupons.length > 0 ? localCoupons : generateInitialCoupons()))
               };
               setCustState(updatedProfile);
               try {
@@ -2258,6 +2258,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       let existingTier: 'Bronze' | 'Silver' | 'Gold' | undefined = undefined;
       let existingSavedAddresses: string[] = [];
       let existingCoupons: Coupon[] = [];
+      let hasCouponRecord = false; // true = this phone already has a coupons record in DB (even if all used up) -> never re-grant welcome coupons
       let action: 'created' | 'updated' = 'created';
 
       if (isSupabaseConfigured) {
@@ -2271,7 +2272,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   existingTier = data.tier;
                   existingSavedAddresses = data.saved_addresses || [];
                   existingCoupons = data.coupons || [];
-                  if (existingCoupons.length === 0) {
+                  hasCouponRecord = Array.isArray(data.coupons);
+                  if (!hasCouponRecord && existingCoupons.length === 0) {
                       try {
                           const saved = localStorage.getItem('damac_mock_customers');
                           if (saved) {
@@ -2311,7 +2313,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           savedFavorites: existingFavorites,
           tier: existingTier,
           savedAddresses: existingSavedAddresses.length > 0 ? existingSavedAddresses : (newProfile.address ? [newProfile.address] : []),
-          coupons: existingCoupons.length > 0 ? existingCoupons : (newProfile.coupons || generateInitialCoupons())
+          coupons: hasCouponRecord ? existingCoupons : (existingCoupons.length > 0 ? existingCoupons : (newProfile.coupons || generateInitialCoupons()))
       };
 
       await setCustomer(finalProfile);
@@ -2321,8 +2323,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const customerLogin = async (phone: string, pass: string): Promise<boolean> => {
       // First try DB if connected
       if (isSupabaseConfigured) {
-          const { data } = await supabase.rpc('loyalty_lookup', { p_phone: phone }).single();
-          if (data && data.password === pass) {
+          const { data } = await supabase.rpc('loyalty_login', { p_phone: phone, p_password: pass }).single();
+          if (data) {
               // Look up if there are any locally assigned coupons
               let localCoupons = [];
               try {
@@ -2358,7 +2360,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   orderHistory: data.order_history || [],
                   pdpaAccepted: data.pdpa_accepted,
                   savedAddresses: data.saved_addresses || [],
-                  coupons: (data.coupons && data.coupons.length > 0) ? data.coupons : (backupCoupons.length > 0 ? backupCoupons : (localCoupons.length > 0 ? localCoupons : generateInitialCoupons()))
+                  coupons: Array.isArray(data.coupons) ? data.coupons : (backupCoupons.length > 0 ? backupCoupons : (localCoupons.length > 0 ? localCoupons : generateInitialCoupons()))
               };
               await setCustomer(profile);
               return true;
@@ -2414,7 +2416,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                       orderHistory: row.order_history || [],
                       pdpaAccepted: row.pdpa_accepted,
                       savedAddresses: row.saved_addresses || [],
-                      coupons: (row.coupons && row.coupons.length > 0) ? row.coupons : (backupCoupons.length > 0 ? backupCoupons : generateInitialCoupons())
+                      coupons: Array.isArray(row.coupons) ? row.coupons : (backupCoupons.length > 0 ? backupCoupons : [])
                   };
               });
           }
