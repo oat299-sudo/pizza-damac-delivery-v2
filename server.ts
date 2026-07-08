@@ -17,6 +17,17 @@ async function startServer() {
         return res.status(400).json({ error: "Missing url" });
       }
 
+      // SSRF guard: this endpoint exists only to unshorten Google Maps links,
+      // so refuse to fetch anything that is not a Google/goo.gl maps domain.
+      let linkHost = '';
+      try { linkHost = new URL(url).hostname.toLowerCase(); } catch (e) {
+        return res.status(400).json({ error: "Invalid url" });
+      }
+      const isAllowedMapsHost = /(^|\.)goo\.gl$|(^|\.)google\.com$|(^|\.)google\.co\.th$|^g\.co$/.test(linkHost);
+      if (!isAllowedMapsHost) {
+        return res.status(400).json({ error: "Only Google Maps links are supported" });
+      }
+
       let finalUrl = url;
       try {
         // Follow redirects to get the ultimate destination URL which contains coordinates
@@ -49,15 +60,8 @@ async function startServer() {
     });
   });
 
-  // --- ADMIN AUTH ---
-  app.post("/api/verify-pin", (req, res) => {
-    const { pin, username } = req.body;
-    const serverPin = process.env.POS_PIN || '123456';
-    if (pin === serverPin) {
-      return res.json({ success: true });
-    }
-    return res.status(401).json({ success: false, error: 'Invalid PIN' });
-  });
+  // (The old /api/verify-pin endpoint was removed - staff login now uses
+  //  Supabase Auth email+password, so no PIN system exists anymore.)
 
   // --- LALAMOVE BACKEND INTEGRATION ---
   // Status check to see if Lalamove real connection is active (configured & reachable)
@@ -271,8 +275,46 @@ async function startServer() {
       const status = req.body.data?.order?.status; // e.g., ASSIGNING_DRIVER, ON_GOING, PICKED_UP, COMPLETED, CANCELED, REJECTED
       const driver = req.body.data?.order?.driverId; 
       
-      // We would ideally verify the webhook signature here
-      
+      // --- Webhook authenticity checks (Lalamove v3) ---
+      const body = req.body || {};
+      // Lalamove's initial connection test can be an empty body - just ACK it.
+      if (!body.eventType && !body.data) {
+        return res.status(200).send('OK');
+      }
+
+      // 1) Hard check: the apiKey pushed with the event must be OUR api key.
+      const ourApiKey = process.env.LALAMOVE_API_KEY || '';
+      if (!ourApiKey || body.apiKey !== ourApiKey) {
+        console.warn('Lalamove webhook REJECTED: apiKey mismatch');
+        return res.status(401).send('Invalid');
+      }
+
+      // 2) HMAC signature check per Lalamove v3 webhook docs:
+      //    raw = `${timestamp}\r\nPOST\r\n${path}\r\n\r\n${JSON.stringify(data)}`
+      //    Enforced only when LALAMOVE_WEBHOOK_STRICT=true so that a format surprise
+      //    cannot break live delivery updates (Lalamove disables the URL after 10
+      //    failed pushes). Watch Cloud Run logs: once real events log "signature OK",
+      //    set LALAMOVE_WEBHOOK_STRICT=true to enforce.
+      try {
+        const lalaSecret = process.env.LALAMOVE_API_SECRET || '';
+        const rawSignature = `${body.timestamp}\r\nPOST\r\n/api/webhook/lalamove\r\n\r\n${JSON.stringify(body.data)}`;
+        const expectedSig = crypto.createHmac('sha256', lalaSecret).update(rawSignature).digest('hex');
+        const sigOk = !!body.signature && expectedSig === String(body.signature);
+        if (sigOk) {
+          console.log('Lalamove webhook signature OK:', body.eventType);
+        } else {
+          console.warn('Lalamove webhook signature MISMATCH:', body.eventType, '| strict =', process.env.LALAMOVE_WEBHOOK_STRICT === 'true');
+          if (process.env.LALAMOVE_WEBHOOK_STRICT === 'true') {
+            return res.status(401).send('Invalid signature');
+          }
+        }
+      } catch (sigErr) {
+        console.warn('Lalamove webhook signature check failed to run:', sigErr);
+        if (process.env.LALAMOVE_WEBHOOK_STRICT === 'true') {
+          return res.status(401).send('Invalid signature');
+        }
+      }
+
       if (orderId && status) {
         // Find matching Supabase order and update it
         // We will do this via a raw fetch to Supabase REST API for simplicity on the server

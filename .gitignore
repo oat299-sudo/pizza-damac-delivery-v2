@@ -1,0 +1,17 @@
+# Dependencies / build output
+node_modules/
+dist/
+
+# Environment files (never commit real keys)
+.env
+.env.*
+!.env.example
+
+# Local junk
+*.log
+.DS_Store
+temp.txt
+grep_holiday.txt
+migrated_prompt_history/
+test_query.cjs
+test_supabase.cjs
