@@ -226,6 +226,44 @@ export const generateInitialCoupons = (): Coupon[] => {
   ];
 };
 
+// Birthday gift: 15% off the whole bill, auto-granted once per year during the
+// customer's birth month (expires at the end of that month). Returns the new
+// coupon if it should be granted right now, otherwise null.
+export const grantBirthdayCouponIfEligible = (birthday: string | undefined | null, coupons: any[]): any | null => {
+  if (!birthday) return null;
+  let month = 0;
+  const s = String(birthday).trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); // DD/MM/YYYY
+  if (m) month = parseInt(m[2], 10);
+  else {
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); // YYYY-MM-DD
+    if (m) month = parseInt(m[2], 10);
+  }
+  if (!month || month < 1 || month > 12) return null;
+  const now = new Date();
+  if (now.getMonth() + 1 !== month) return null;
+  const year = now.getFullYear();
+  const id = `coupon_birthday_${year}`;
+  if ((coupons || []).some((c: any) => c && c.id === id)) return null; // already granted this year
+  const lastDay = new Date(year, month, 0).getDate();
+  const mm = String(month).padStart(2, '0');
+  return {
+    id,
+    code: 'HBD15',
+    title: 'Birthday Gift: 15% OFF Your Entire Bill',
+    titleTh: 'ของขวัญวันเกิด ลด 15% ทั้งบิล',
+    description: 'Happy Birthday! Enjoy 15% off your entire order - valid during your birthday month only.',
+    descriptionTh: 'สุขสันต์วันเกิด! รับส่วนลด 15% ทั้งออเดอร์ ใช้ได้ภายในเดือนเกิดของคุณเท่านั้น',
+    discountType: 'percentage_total',
+    discountValue: 15,
+    minOrderAmount: 0,
+    isUsed: false,
+    expiryDate: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
+    badge: 'Birthday Gift',
+    badgeTh: 'ของขวัญวันเกิด',
+  };
+};
+
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // --- Language State ---
   const [language, setLanguage] = useState<Language>(() => {
@@ -1951,6 +1989,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   savedAddresses: data.saved_addresses || [],
                   coupons: Array.isArray(data.coupons) ? data.coupons : (backupCoupons.length > 0 ? backupCoupons : (localCoupons.length > 0 ? localCoupons : generateInitialCoupons()))
               };
+              const bdayGiftFetch = grantBirthdayCouponIfEligible(updatedProfile.birthday, updatedProfile.coupons || []);
+              if (bdayGiftFetch) {
+                  updatedProfile.coupons = [...(updatedProfile.coupons || []), bdayGiftFetch];
+                  await setCustomer(updatedProfile); // persist the birthday gift
+                  return;
+              }
               setCustState(updatedProfile);
               try {
                 localStorage.setItem('damac_customer', JSON.stringify(updatedProfile));
@@ -2317,6 +2361,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           coupons: hasCouponRecord ? existingCoupons : (existingCoupons.length > 0 ? existingCoupons : (newProfile.coupons || generateInitialCoupons()))
       };
 
+      const bdayGiftReg = grantBirthdayCouponIfEligible(finalProfile.birthday, finalProfile.coupons || []);
+      if (bdayGiftReg) finalProfile.coupons = [...(finalProfile.coupons || []), bdayGiftReg];
       await setCustomer(finalProfile);
       return action;
   };
@@ -2363,6 +2409,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   savedAddresses: data.saved_addresses || [],
                   coupons: Array.isArray(data.coupons) ? data.coupons : (backupCoupons.length > 0 ? backupCoupons : (localCoupons.length > 0 ? localCoupons : generateInitialCoupons()))
               };
+              const bdayGiftLogin = grantBirthdayCouponIfEligible(profile.birthday, profile.coupons || []);
+              if (bdayGiftLogin) profile.coupons = [...(profile.coupons || []), bdayGiftLogin];
               await setCustomer(profile);
               return true;
           }
