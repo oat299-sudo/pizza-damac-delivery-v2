@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useStore } from '../context/StoreContext';
+import { useStore, grantBirthdayCouponIfEligible } from '../context/StoreContext';
+import { supabase } from '../services/supabaseClient';
 import { Pizza, Topping, CartItem, ProductCategory, OrderSource, ExpenseCategory, PaymentMethod, Order, OrderStatus, SubItem, parseGPSCoordinates, parseDeliveryPhone, parseAnyMapLink } from '../types';
 import { CATEGORIES, EXPENSE_CATEGORIES, PRESET_EXPENSES } from '../constants';
 import { generatePromptPayPayload } from '../utils/promptpay';
@@ -548,6 +549,12 @@ export const POSView: React.FC = () => {
     const [posDeliveryLng, setPosDeliveryLng] = useState<number | null>(null);
     const [posResolvingGps, setPosResolvingGps] = useState(false);
     const [posDiscount, setPosDiscount] = useState<number>(0);
+    // --- Member coupon redemption (walk-in customers) ---
+    const [showMemberCouponModal, setShowMemberCouponModal] = useState(false);
+    const [memberLookupPhone, setMemberLookupPhone] = useState('');
+    const [memberLookupLoading, setMemberLookupLoading] = useState(false);
+    const [memberProfile, setMemberProfile] = useState<any | null>(null);
+    const [posMemberCoupon, setPosMemberCoupon] = useState<any | null>(null);
     const [posPromoId, setPosPromoId] = useState<string>('');
     const [tempClosedMsg, setTempClosedMsg] = useState(storeSettings.closedMessage);
     const [orderSource, setOrderSource] = useState<OrderSource>('store');
@@ -737,9 +744,64 @@ export const POSView: React.FC = () => {
         return d;
     }, [posPromoId, posDiscount, cartTotal, promoCodes]);
 
+    // Member coupon: discount for the CURRENT cart (same rules as customer checkout)
+    const posMemberCouponDiscount = useMemo(() => {
+        const c = posMemberCoupon;
+        if (!c) return 0;
+        if (cartTotal < (c.minOrderAmount || 0)) return 0;
+        if (c.expiryDate) {
+            const exp = new Date(`${c.expiryDate}T23:59:59`);
+            if (!isNaN(exp.getTime()) && new Date() > exp) return 0;
+        }
+        if (c.applicableOrderTypes && c.applicableOrderTypes.length > 0 && !c.applicableOrderTypes.includes(posOrderType)) return 0;
+        if (c.discountType === 'percentage_most_expensive') {
+            let maxUnit = 0;
+            cart.forEach(item => {
+                const itemDef = menu.find(m => m.id === item.pizzaId);
+                if (itemDef?.category === 'pizza' || itemDef?.category === 'promotion') {
+                    const unitPrice = item.totalPrice / item.quantity;
+                    if (unitPrice > maxUnit) maxUnit = unitPrice;
+                }
+            });
+            return Math.round(maxUnit * ((c.discountValue || 0) / 100));
+        } else if (c.discountType === 'fixed_discount') {
+            return Math.min(cartTotal, c.discountValue || 0);
+        } else if (c.discountType === 'percentage_total') {
+            return Math.round(cartTotal * ((c.discountValue || 0) / 100));
+        }
+        return 0; // free_delivery is not applicable for POS orders
+    }, [posMemberCoupon, cartTotal, posOrderType, cart, menu]);
+
+    const handleMemberLookup = async () => {
+        const ph = (memberLookupPhone || '').trim();
+        if (!ph) return;
+        setMemberLookupLoading(true);
+        setMemberProfile(null);
+        try {
+            const { data } = await supabase.rpc('loyalty_lookup', { p_phone: ph }).single();
+            if (data && (data as any).phone) {
+                const d: any = data;
+                let coupons = Array.isArray(d.coupons) ? d.coupons : [];
+                // Auto-grant the birthday gift if this is the customer's birth month
+                const bdayGift = grantBirthdayCouponIfEligible(d.birthday, coupons);
+                if (bdayGift) {
+                    coupons = [...coupons, bdayGift];
+                    try { await supabase.rpc('loyalty_update', { p_phone: ph, p: { coupons } }); } catch (e) { console.warn('birthday grant save failed', e); }
+                }
+                setMemberProfile({ phone: d.phone, name: d.name || '', points: d.loyalty_points || 0, coupons });
+            } else {
+                alert(language === 'th' ? 'ไม่พบสมาชิกเบอร์นี้ (ให้ลูกค้าสมัครที่ pizzadamac.com ก่อนครับ)' : 'No member found for this phone.');
+            }
+        } catch (e) {
+            alert(language === 'th' ? 'ไม่พบสมาชิกเบอร์นี้ (ให้ลูกค้าสมัครที่ pizzadamac.com ก่อนครับ)' : 'No member found for this phone.');
+        } finally {
+            setMemberLookupLoading(false);
+        }
+    };
+
     const posCheckoutTotal = useMemo(() => {
-        return selectedOrder ? selectedOrder.totalAmount : Math.max(0, cartTotal - posCalculatedDiscount);
-    }, [selectedOrder, cartTotal, posCalculatedDiscount]);
+        return selectedOrder ? selectedOrder.totalAmount : Math.max(0, cartTotal - posCalculatedDiscount - posMemberCouponDiscount);
+    }, [selectedOrder, cartTotal, posCalculatedDiscount, posMemberCouponDiscount]);
 
     // --- EDIT ORDER STATE ---
     const [editingOrder, setEditingOrder] = useState<Order | null>(null);
@@ -1381,6 +1443,9 @@ export const POSView: React.FC = () => {
             customerName: tableNumber || undefined, // use table/name field as customer name
             promoCode: selectedPromo ? selectedPromo.code : undefined,
             discountAmount: posCalculatedDiscount > 0 ? posCalculatedDiscount : undefined,
+            couponCode: posMemberCoupon && posMemberCouponDiscount > 0 ? posMemberCoupon.code : undefined,
+            couponId: posMemberCoupon && posMemberCouponDiscount > 0 ? posMemberCoupon.id : undefined,
+            couponDiscountAmount: posMemberCouponDiscount > 0 ? posMemberCouponDiscount : undefined,
             delivery: posOrderType === 'delivery' ? {
                 address: finalDeliveryAddress,
                 zoneName: 'Standard',
@@ -1393,6 +1458,8 @@ export const POSView: React.FC = () => {
             setTableNumber(''); 
             setDeliveryPlatformRef(''); 
             setPosCustomerPhone('');
+            setPosMemberCoupon(null);
+            setMemberProfile(null);
             setPosDeliveryAddress('');
             setPosDeliveryLat(null);
             setPosDeliveryLng(null);
@@ -1503,6 +1570,9 @@ export const POSView: React.FC = () => {
                 customerName: tableNumber || undefined,
                 promoCode: selectedPromo ? selectedPromo.code : undefined,
                 discountAmount: posCalculatedDiscount > 0 ? posCalculatedDiscount : undefined,
+                couponCode: posMemberCoupon && posMemberCouponDiscount > 0 ? posMemberCoupon.code : undefined,
+                couponId: posMemberCoupon && posMemberCouponDiscount > 0 ? posMemberCoupon.id : undefined,
+                couponDiscountAmount: posMemberCouponDiscount > 0 ? posMemberCouponDiscount : undefined,
                 delivery: posOrderType === 'delivery' ? {
                     address: finalDeliveryAddress,
                     zoneName: 'Standard',
@@ -1522,6 +1592,8 @@ export const POSView: React.FC = () => {
                 setTableNumber(''); 
                 setDeliveryPlatformRef(''); 
                 setPosCustomerPhone('');
+                setPosMemberCoupon(null);
+                setMemberProfile(null);
                 setPosDeliveryAddress('');
                 setPosDeliveryLat(null);
                 setPosDeliveryLng(null);
@@ -2632,6 +2704,63 @@ export const POSView: React.FC = () => {
                                             <option value="manual">{language === 'th' ? 'ระบุส่วนลดเอง' : 'Manual Discount'}</option>
                                         </select>
                                     </div>
+                                    <div className="pb-1 border-b border-gray-50">
+                                        {posMemberCoupon ? (
+                                            <div className="flex justify-between items-center bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-2 gap-2">
+                                                <div className="text-xs font-black text-emerald-800 leading-tight">
+                                                    🎟️ {posMemberCoupon.code} · {language === 'th' ? (posMemberCoupon.titleTh || posMemberCoupon.title) : posMemberCoupon.title}
+                                                    <span className="block text-[10px] font-bold text-emerald-600">{memberProfile?.name || ''} ({memberProfile?.phone || posCustomerPhone}) · {language === 'th' ? 'ส่วนลด' : 'Discount'} -฿{posMemberCouponDiscount}</span>
+                                                    {posMemberCouponDiscount <= 0 && <span className="block text-[10px] font-bold text-red-500">{language === 'th' ? '⚠️ เงื่อนไขยังไม่ผ่าน (ยอดขั้นต่ำ/ประเภทออเดอร์/วันหมดอายุ)' : '⚠️ Conditions not met'}</span>}
+                                                </div>
+                                                <button onClick={() => setPosMemberCoupon(null)} className="text-[10px] font-black text-red-500 border border-red-200 rounded px-1.5 py-1 bg-white shrink-0">{language === 'th' ? 'ยกเลิก' : 'Remove'}</button>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => { setMemberLookupPhone(posCustomerPhone || ''); setMemberProfile(null); setShowMemberCouponModal(true); }}
+                                                className="w-full bg-gradient-to-r from-amber-400 to-orange-500 text-white font-black text-sm py-2 rounded-xl shadow hover:opacity-90 active:scale-95 transition-all"
+                                            >
+                                                🎟️ {language === 'th' ? 'ใช้คูปองสมาชิก (ค้นด้วยเบอร์โทร)' : 'Member Coupon (phone lookup)'}
+                                            </button>
+                                        )}
+                                        {showMemberCouponModal && (
+                                            <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center p-4" onClick={() => setShowMemberCouponModal(false)}>
+                                                <div className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
+                                                    <h3 className="font-black text-lg text-gray-800">🎟️ {language === 'th' ? 'ใช้คูปองสมาชิก' : 'Member Coupons'}</h3>
+                                                    <div className="flex gap-2">
+                                                        <input type="tel" autoFocus value={memberLookupPhone} onChange={e => setMemberLookupPhone(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleMemberLookup(); }} placeholder={language === 'th' ? 'เบอร์โทรสมาชิก' : 'Member phone'} className="flex-1 border-2 border-amber-300 rounded-xl px-3 py-2.5 font-bold outline-none focus:border-amber-500" />
+                                                        <button onClick={handleMemberLookup} disabled={memberLookupLoading} className="bg-amber-500 text-white font-black px-4 rounded-xl disabled:opacity-50">{memberLookupLoading ? '...' : (language === 'th' ? 'ค้นหา' : 'Find')}</button>
+                                                    </div>
+                                                    {memberProfile && (
+                                                        <div className="space-y-2">
+                                                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm font-bold text-blue-900">
+                                                                👤 {memberProfile.name || '-'} · {memberProfile.phone}
+                                                                <span className="block text-xs text-blue-600">⭐ {language === 'th' ? 'แต้มสะสม' : 'Points'}: {memberProfile.points}</span>
+                                                            </div>
+                                                            {(memberProfile.coupons || []).filter((c: any) => c && !c.isUsed).length === 0 && (
+                                                                <div className="text-center text-sm font-bold text-gray-400 py-4">{language === 'th' ? 'ไม่มีคูปองที่ใช้ได้' : 'No available coupons'}</div>
+                                                            )}
+                                                            {(memberProfile.coupons || []).filter((c: any) => c && !c.isUsed).map((c: any, idx: number) => {
+                                                                const expired = c.expiryDate ? (new Date() > new Date(`${c.expiryDate}T23:59:59`)) : false;
+                                                                return (
+                                                                    <button key={String(c.id) + '_' + idx} disabled={expired}
+                                                                        onClick={() => { setPosMemberCoupon(c); setPosCustomerPhone(memberProfile.phone); setShowMemberCouponModal(false); }}
+                                                                        className={`w-full text-left border-2 rounded-xl p-3 transition ${expired ? 'border-gray-200 bg-gray-50 opacity-50' : 'border-amber-200 bg-amber-50 hover:border-amber-400 active:scale-[0.99]'}`}>
+                                                                        <div className="flex justify-between items-center">
+                                                                            <span className="font-black text-sm text-gray-800">{c.code}{(language === 'th' ? c.badgeTh : c.badge) ? ` · ${language === 'th' ? c.badgeTh : c.badge}` : ''}</span>
+                                                                            {expired && <span className="text-[10px] font-black text-red-500">{language === 'th' ? 'หมดอายุ' : 'Expired'}</span>}
+                                                                        </div>
+                                                                        <div className="text-xs font-bold text-gray-600 mt-0.5">{language === 'th' ? (c.titleTh || c.title) : c.title}</div>
+                                                                        {(c.minOrderAmount || 0) > 0 && <div className={`text-[10px] font-bold mt-0.5 ${cartTotal >= c.minOrderAmount ? 'text-green-600' : 'text-red-500'}`}>{language === 'th' ? `ขั้นต่ำ ฿${c.minOrderAmount} (ตะกร้าตอนนี้ ฿${cartTotal})` : `Min ฿${c.minOrderAmount} (cart ฿${cartTotal})`}</div>}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                    <button onClick={() => setShowMemberCouponModal(false)} className="w-full border-2 border-gray-200 rounded-xl py-2 font-bold text-gray-500">{language === 'th' ? 'ปิด' : 'Close'}</button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                     {posPromoId === 'manual' && (
                                         <div className="flex justify-between items-center text-xs font-bold text-gray-500 pb-1 border-b border-gray-50">
                                             <span>{language === 'th' ? 'ลดราคา (บาท):' : 'Discount (THB):'}</span>
@@ -2659,11 +2788,11 @@ export const POSView: React.FC = () => {
                                         <>
                                             <div className="flex justify-between items-center text-xs text-gray-500 font-medium">
                                                 <span>{language === 'th' ? 'ก่อนภาษี (Ex. VAT)' : 'Before VAT (Ex. VAT)'}</span>
-                                                <span>฿{(Math.max(0, cartTotal - posCalculatedDiscount) - (Math.max(0, cartTotal - posCalculatedDiscount) * 7 / 107)).toFixed(2)}</span>
+                                                <span>฿{(Math.max(0, cartTotal - posCalculatedDiscount - posMemberCouponDiscount) - (Math.max(0, cartTotal - posCalculatedDiscount - posMemberCouponDiscount) * 7 / 107)).toFixed(2)}</span>
                                             </div>
                                             <div className="flex justify-between items-center text-xs text-gray-400 font-medium">
                                                 <span>{language === 'th' ? 'ภาษีมูลค่าเพิ่ม (VAT 7%)' : 'Value Added Tax (VAT 7%)'}</span>
-                                                <span>฿{(Math.max(0, cartTotal - posCalculatedDiscount) * 7 / 107).toFixed(2)}</span>
+                                                <span>฿{(Math.max(0, cartTotal - posCalculatedDiscount - posMemberCouponDiscount) * 7 / 107).toFixed(2)}</span>
                                             </div>
                                         </>
                                     )}
@@ -2675,7 +2804,7 @@ export const POSView: React.FC = () => {
                                     )}
                                     <div className="flex justify-between items-center text-2xl font-black text-gray-950 pt-1">
                                         <span>{language === 'th' ? 'รวมยอดทั้งหมด' : 'Total'}</span>
-                                        <span>฿{Math.max(0, cartTotal - posCalculatedDiscount)}</span>
+                                        <span>฿{Math.max(0, cartTotal - posCalculatedDiscount - posMemberCouponDiscount)}</span>
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">

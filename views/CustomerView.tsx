@@ -313,6 +313,11 @@ export const CustomerView: React.FC = () => {
 
   const calculatedCouponDiscount = useMemo(() => {
       if (!appliedCoupon) return 0;
+      // Expired coupons give no discount (e.g. birthday coupon outside the birth month)
+      if (appliedCoupon.expiryDate) {
+          const exp = new Date(`${appliedCoupon.expiryDate}T23:59:59`);
+          if (!isNaN(exp.getTime()) && new Date() > exp) return 0;
+      }
       if (cartTotal < (appliedCoupon.minOrderAmount || 0)) return 0;
       
       // Check order type applicability if specified
@@ -1443,8 +1448,8 @@ export const CustomerView: React.FC = () => {
                                             {c.code}
                                         </span>
                                         {c.expiryDate && (
-                                            <span className="text-[10px] text-gray-400 font-medium">
-                                                Exp: {c.expiryDate}
+                                            <span className={`text-[10px] font-medium ${new Date() > new Date(`${c.expiryDate}T23:59:59`) ? 'text-red-500 font-black' : 'text-gray-400'}`}>
+                                                {new Date() > new Date(`${c.expiryDate}T23:59:59`) ? (language === 'th' ? 'หมดอายุ ' : 'Expired ') : 'Exp: '}{c.expiryDate}
                                             </span>
                                         )}
                                     </div>
