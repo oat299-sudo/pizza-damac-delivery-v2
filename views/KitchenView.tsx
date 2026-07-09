@@ -27,7 +27,33 @@ export const KitchenView: React.FC = () => {
     btDevice, btStatus, connectBluetoothPrinter, disconnectBluetoothPrinter, resetBluetoothConnection, writeBtInChunks
   } = useStore();
   const [filterType, setFilterType] = useState<'active' | 'today' | 'yesterday' | 'cancelled'>('active');
-  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
+  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
+      try { return JSON.parse(localStorage.getItem('damac_kds_checked') || '{}'); } catch (e) { return {}; }
+  });
+  // Live clock tick (every 30s) for order waiting-time badges & aging colors
+  const [nowTick, setNowTick] = useState<number>(Date.now());
+  useEffect(() => {
+      const iv = setInterval(() => setNowTick(Date.now()), 30000);
+      return () => clearInterval(iv);
+  }, []);
+
+  // How long an order has been waiting + its urgency level
+  const getOrderAging = (order: Order) => {
+      const started = order.createdAt ? new Date(order.createdAt).getTime() : nowTick;
+      const mins = Math.max(0, Math.floor((nowTick - started) / 60000));
+      let level: 'ok' | 'warn' | 'late' = 'ok';
+      if (mins >= 20) level = 'late'; else if (mins >= 10) level = 'warn';
+      return { mins, level };
+  };
+
+  const agingBorderClass = (order: Order) => {
+      if (order.status === 'completed') return 'border-gray-400 opacity-60';
+      if (order.status === 'cancelled') return 'border-gray-300 opacity-50';
+      const a = getOrderAging(order);
+      if (a.level === 'late') return 'border-red-600 ring-4 ring-red-200';
+      if (a.level === 'warn') return 'border-amber-500 ring-2 ring-amber-100';
+      return 'border-green-500';
+  };
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
   const [showPrinterSettings, setShowPrinterSettings] = useState<boolean>(false);
 
@@ -268,7 +294,11 @@ export const KitchenView: React.FC = () => {
   const toggleItemCheck = (orderId: string, itemIdx: number) => {
       playClickSound();
       const key = `${orderId}-${itemIdx}`;
-      setCheckedItems(prev => ({...prev, [key]: !prev[key]}));
+      setCheckedItems(prev => {
+          const next = {...prev, [key]: !prev[key]};
+          try { localStorage.setItem('damac_kds_checked', JSON.stringify(next)); } catch (e) {}
+          return next;
+      });
   };
 
   const getStatusColor = (status: OrderStatus) => {
@@ -638,7 +668,7 @@ export const KitchenView: React.FC = () => {
              animate={{ opacity: 1, y: 0, scale: 1 }}
              exit={{ opacity: 0, scale: 0.9 }}
              transition={{ duration: 0.3 }}
-             className={`bg-white rounded-xl shadow-lg border-l-8 flex flex-col overflow-hidden text-gray-900 ${order.status === 'completed' ? 'border-gray-400 opacity-60' : 'border-brand-500'}`}
+             className={`bg-white rounded-xl shadow-lg border-l-8 flex flex-col overflow-hidden text-gray-900 ${agingBorderClass(order)}`}
            >
               {/* Header */}
               <div className={`p-4 border-b flex justify-between items-start ${order.status === 'pending' ? 'bg-red-50' : 'bg-white'}`}>
@@ -660,6 +690,11 @@ export const KitchenView: React.FC = () => {
                   </div>
                   <div className="text-right text-sm text-gray-500">
                       <div className="flex items-center gap-1 justify-end font-bold text-gray-700"><Clock size={14}/> {formatOrderDateTime(order.createdAt, 'short')}</div>
+                      {order.status !== 'completed' && order.status !== 'cancelled' && (() => { const a = getOrderAging(order); return (
+                          <div className={`inline-flex items-center gap-1 justify-end text-xs font-black mt-1 px-2 py-0.5 rounded-full ${a.level === 'late' ? 'bg-red-100 text-red-700' : a.level === 'warn' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-700'}`}>
+                              ⏱ {language === 'th' ? `รอมาแล้ว ${a.mins} นาที` : `waiting ${a.mins} min`}
+                          </div>
+                      ); })()}
                       {order.pickupTime && (
                            <div className="text-xs bg-yellow-100 text-yellow-800 px-1 rounded mt-1 font-bold">
                                {language === 'th' ? 'เวลารับสินค้า' : 'Pickup'}: {order.pickupTime}

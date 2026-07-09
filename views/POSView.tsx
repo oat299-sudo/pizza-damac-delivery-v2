@@ -555,6 +555,7 @@ export const POSView: React.FC = () => {
     const [memberLookupLoading, setMemberLookupLoading] = useState(false);
     const [memberProfile, setMemberProfile] = useState<any | null>(null);
     const [posMemberCoupon, setPosMemberCoupon] = useState<any | null>(null);
+    const [profileCustomer, setProfileCustomer] = useState<any | null>(null); // CRM full-profile drawer
     const [posPromoId, setPosPromoId] = useState<string>('');
     const [tempClosedMsg, setTempClosedMsg] = useState(storeSettings.closedMessage);
     const [orderSource, setOrderSource] = useState<OrderSource>('store');
@@ -4672,7 +4673,7 @@ export const POSView: React.FC = () => {
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-100 text-gray-700">
                                                         {filtered.map((cust, idx) => (
-                                                            <tr key={cust.phone || idx} className="hover:bg-gray-50/50 transition">
+                                                            <tr key={cust.phone || idx} onClick={() => setProfileCustomer(cust)} className="hover:bg-brand-50/40 transition cursor-pointer">
                                                                 <td className="p-3 whitespace-nowrap">
                                                                     <div className="flex items-center gap-2">
                                                                         <div className="w-8 h-8 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center font-bold">
@@ -4703,7 +4704,7 @@ export const POSView: React.FC = () => {
                                                                 </td>
                                                                 <td className="p-3 whitespace-nowrap">
                                                                     <button 
-                                                                        onClick={() => setSelectedCouponCustomer(cust)}
+                                                                        onClick={(e) => { e.stopPropagation(); setSelectedCouponCustomer(cust); }}
                                                                         className="inline-flex items-center gap-1 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold px-2 py-1 rounded border border-amber-200 transition cursor-pointer"
                                                                     >
                                                                         <Gift size={12}/>
@@ -7194,6 +7195,113 @@ export const POSView: React.FC = () => {
             )}
 
             {/* Customer Coupon Management Modal */}
+            {profileCustomer && (() => {
+                const cust = profileCustomer;
+                const custOrders = (orders || []).filter((o: any) => o.customerPhone && cust.phone && String(o.customerPhone) === String(cust.phone));
+                const doneOrders = custOrders.filter((o: any) => o.status === 'completed');
+                const totalSpent = doneOrders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0);
+                const recentOrders = [...custOrders].sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()).slice(0, 10);
+                let isBirthdayMonth = false;
+                if (cust.birthday) {
+                    const s = String(cust.birthday).trim();
+                    let mm = 0;
+                    let m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+                    if (m1) mm = parseInt(m1[2], 10); else { m1 = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m1) mm = parseInt(m1[2], 10); }
+                    isBirthdayMonth = mm > 0 && (new Date().getMonth() + 1) === mm;
+                }
+                const allCoupons = cust.coupons || [];
+                const activeCoupons = allCoupons.filter((c: any) => c && !c.isUsed && !(c.expiryDate && new Date() > new Date(`${c.expiryDate}T23:59:59`)));
+                return (
+                    <div className="fixed inset-0 bg-black/60 z-[998] flex items-center justify-center p-4" onClick={() => setProfileCustomer(null)}>
+                        <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[88vh] overflow-y-auto p-6 space-y-4 text-left" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-14 h-14 rounded-full bg-brand-500 text-white flex items-center justify-center font-black text-2xl shrink-0">{cust.name ? cust.name.charAt(0).toUpperCase() : 'C'}</div>
+                                    <div>
+                                        <div className="font-black text-xl text-gray-900 flex items-center gap-2 flex-wrap">
+                                            <span>{cust.name || 'Anonymous'}</span>
+                                            {cust.tier && (
+                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${cust.tier === 'Gold' ? 'bg-amber-100 text-amber-800' : cust.tier === 'Silver' ? 'bg-slate-100 text-slate-700' : 'bg-orange-50 text-orange-700'}`}>★ {cust.tier}</span>
+                                            )}
+                                            {isBirthdayMonth && <span className="bg-pink-100 text-pink-700 text-[10px] font-black px-2 py-0.5 rounded-full">🎂 {language === 'th' ? 'เดือนเกิด!' : 'Birthday month!'}</span>}
+                                        </div>
+                                        <div className="text-sm font-bold text-gray-500 mt-0.5">📞 {cust.phone}{cust.birthday ? ` · 🎂 ${cust.birthday}` : ''}</div>
+                                    </div>
+                                </div>
+                                <button onClick={() => setProfileCustomer(null)} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={22}/></button>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+                                <div className="bg-brand-50 border border-brand-100 rounded-xl p-3">
+                                    <div className="text-xl font-black text-brand-600">{cust.loyaltyPoints || 0}</div>
+                                    <div className="text-[10px] font-black text-gray-500 uppercase">{language === 'th' ? 'แต้มสะสม' : 'Points'}</div>
+                                </div>
+                                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                                    <div className="text-xl font-black text-emerald-600">{activeCoupons.length}</div>
+                                    <div className="text-[10px] font-black text-gray-500 uppercase">{language === 'th' ? 'คูปองใช้ได้' : 'Active coupons'}</div>
+                                </div>
+                                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                                    <div className="text-xl font-black text-blue-600">{custOrders.length}</div>
+                                    <div className="text-[10px] font-black text-gray-500 uppercase">{language === 'th' ? 'ออเดอร์' : 'Orders'}</div>
+                                </div>
+                                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
+                                    <div className="text-xl font-black text-amber-600">฿{totalSpent.toLocaleString()}</div>
+                                    <div className="text-[10px] font-black text-gray-500 uppercase">{language === 'th' ? 'ยอดสะสม' : 'Total spent'}</div>
+                                </div>
+                            </div>
+                            {cust.address && (
+                                <div className="text-xs font-bold text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">🏠 {cust.address}</div>
+                            )}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <h4 className="font-black text-sm text-gray-700">🎟️ {language === 'th' ? 'คูปองทั้งหมด' : 'Coupons'} ({allCoupons.length})</h4>
+                                    <button onClick={() => setSelectedCouponCustomer(cust)} className="text-xs font-black text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 hover:bg-amber-100">➕ {language === 'th' ? 'เพิ่ม/จัดการคูปอง' : 'Add / Manage'}</button>
+                                </div>
+                                {allCoupons.length === 0 ? (
+                                    <div className="text-xs text-gray-400 font-bold py-2">{language === 'th' ? 'ยังไม่มีคูปอง' : 'No coupons'}</div>
+                                ) : (
+                                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                                        {allCoupons.map((c: any, i: number) => {
+                                            const expired = c.expiryDate ? (new Date() > new Date(`${c.expiryDate}T23:59:59`)) : false;
+                                            const statusTxt = c.isUsed ? (language === 'th' ? 'ใช้แล้ว' : 'Used') : expired ? (language === 'th' ? 'หมดอายุ' : 'Expired') : (language === 'th' ? 'ใช้ได้' : 'Active');
+                                            const chip = c.isUsed ? 'bg-gray-100 text-gray-500' : expired ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700';
+                                            return (
+                                                <div key={String(c.id) + '_' + i} className="flex justify-between items-center border border-gray-100 rounded-lg px-2.5 py-1.5">
+                                                    <div className="text-xs font-bold text-gray-700 leading-tight">
+                                                        <span className="font-black">{c.code}</span> · {language === 'th' ? (c.titleTh || c.title) : c.title}
+                                                        {c.expiryDate && <span className="block text-[10px] text-gray-400 font-medium">Exp: {c.expiryDate}</span>}
+                                                    </div>
+                                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 ${chip}`}>{statusTxt}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                            <div>
+                                <h4 className="font-black text-sm text-gray-700 mb-2">🧾 {language === 'th' ? `ประวัติออเดอร์ (ล่าสุด ${recentOrders.length} รายการ)` : `Order history (last ${recentOrders.length})`}</h4>
+                                {recentOrders.length === 0 ? (
+                                    <div className="text-xs text-gray-400 font-bold py-2">{language === 'th' ? 'ยังไม่พบออเดอร์ของเบอร์นี้ในระบบ' : 'No orders found for this phone'}</div>
+                                ) : (
+                                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                        {recentOrders.map((o: any) => (
+                                            <div key={o.id} className="flex justify-between items-center border border-gray-100 rounded-lg px-2.5 py-1.5 text-xs">
+                                                <div className="font-bold text-gray-700 leading-tight">
+                                                    #{String(o.id).slice(-4)} · {o.createdAt ? new Date(o.createdAt).toLocaleString(language === 'th' ? 'th-TH' : 'en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'}
+                                                    <span className="block text-[10px] text-gray-400 font-medium">{(o.items || []).slice(0, 3).map((it: any) => `${it.quantity}x ${(language === 'th' && it.nameTh) ? it.nameTh : it.name}`).join(', ')}{(o.items || []).length > 3 ? ' …' : ''}</span>
+                                                </div>
+                                                <div className="text-right shrink-0 ml-2">
+                                                    <span className="font-black text-gray-900 block">฿{(o.totalAmount || 0).toLocaleString()}</span>
+                                                    <span className={`text-[9px] font-black uppercase ${o.status === 'completed' ? 'text-green-600' : o.status === 'cancelled' ? 'text-red-500' : 'text-amber-600'}`}>{o.status}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
             {selectedCouponCustomer && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedCouponCustomer(null)}>
                     <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col font-sans" onClick={(e) => e.stopPropagation()}>
