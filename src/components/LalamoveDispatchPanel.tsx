@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Truck, MapPin, Check, ChevronRight, AlertTriangle, Play, CheckCircle2, User, Phone, Search, Loader2 } from 'lucide-react';
 import { Order, parseGPSCoordinates, parseAnyMapLink } from '../../types';
-import { getLalamoveQuote, getRandomMockRider, LalamoveQuote, fetchRealLalamoveQuote, createRealLalamoveOrder, checkLalamoveStatus } from '../../services/lalamoveService';
+import { getLalamoveQuote, LalamoveQuote, fetchRealLalamoveQuote, createRealLalamoveOrder, checkLalamoveStatus } from '../../services/lalamoveService';
 import { RESTAURANT_LOCATION } from '../../constants';
 import { calculateDistanceKm } from '../../utils/geo';
 import { useStore } from '../../context/StoreContext';
@@ -82,76 +82,66 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
     loadQuotes();
   }, [order.deliveryAddress, order.deliveryLat, order.deliveryLng, order.customerName, order.customerPhone]);
 
-  // Simulation effect
-  useEffect(() => {
-    if (order.lalamove_order_id) return;
-    let timer: NodeJS.Timeout;
-    const status = order.lalamoveStatus;
+  // NOTE: The old auto-advance "Simulation effect" and the mock-rider fallback are REMOVED.
+  // Production rule: only REAL Lalamove bookings are allowed. Real status updates arrive
+  // via the Lalamove webhook (delivery_status), never from a client-side timer.
 
-    if (status && status !== 'none' && status !== 'completed' && status !== 'cancelled') {
-      // Simulate transit states automatically
-      timer = setTimeout(() => {
-        let nextStatus: Order['lalamoveStatus'] = 'none';
-        
-        if (status === 'assigned') {
-          nextStatus = 'picking_up';
-        } else if (status === 'picking_up') {
-          nextStatus = 'in_transit';
-        } else if (status === 'in_transit') {
-          nextStatus = 'completed';
-        }
-
-        if (nextStatus && nextStatus !== 'none') {
-          updateOrderFields(order.id, { lalamoveStatus: nextStatus });
-        }
-      }, 12000); // Step every 12 seconds
+  // Derive display status: real orders follow webhook delivery_status
+  const deriveStatus = (): NonNullable<Order['lalamoveStatus']> | 'none' => {
+    if (order.lalamove_order_id) {
+      const ds = String(order.delivery_status || '').toLowerCase();
+      if (ds === 'completed') return 'completed';
+      if (ds === 'ongoing' || ds === 'on_going') return 'in_transit';
+      if (ds === 'picked_up') return 'in_transit';
+      if (ds === 'assigning' || ds === 'assigning_driver') return 'assigned';
+      if (ds === 'on_the_way' || ds === 'to_pickup') return 'picking_up';
+      if (ds === 'canceled' || ds === 'cancelled' || ds === 'rejected' || ds === 'expired') return 'none';
+      return (order.lalamoveStatus && order.lalamoveStatus !== 'none') ? order.lalamoveStatus : 'assigned';
     }
+    return order.lalamoveStatus || 'none';
+  };
 
-    return () => clearTimeout(timer);
-  }, [order.lalamoveStatus, order.id, updateOrderFields]);
+  const selectedQuoteNow = quotes.find(q => q.vehicleType === selectedVehicle) || quotes[0];
+  const hasRealQuote = Boolean(selectedQuoteNow?.quotationId);
 
   const handleDispatch = async () => {
-    setIsBooking(true);
     const selectedQuote = quotes.find(q => q.vehicleType === selectedVehicle) || quotes[0];
 
+    // HARD GUARD: never book without a REAL Lalamove quotation (no more fake riders)
+    if (!selectedQuote?.quotationId) {
+      alert(language === 'th'
+        ? 'ยังไม่ได้ราคาจริงจาก Lalamove จึงเรียกไรเดอร์ไม่ได้\n\nสาเหตุที่พบบ่อย: พิกัดลูกค้าไม่ครบ/ไม่ถูกต้อง\nวิธีแก้: ตรวจสอบที่อยู่และพิกัด [GPS Pin] ของออเดอร์นี้ แล้วกด "ขอราคาใหม่" อีกครั้ง'
+        : 'No real Lalamove quotation available — cannot dispatch a real rider.\nCheck the customer coordinates and refresh the quote.');
+      return;
+    }
+
+    setIsBooking(true);
     try {
-      // If the selected quote contains a real quotationId, we try to book it via real API!
-      if (selectedQuote.quotationId) {
-        const realOrder = await createRealLalamoveOrder(
-          selectedQuote.quotationId,
-          order.customerName || 'Customer',
-          order.customerPhone || '',
-          selectedQuote.stopIds || []
-        );
-        if (realOrder) {
-          await updateOrderFields(order.id, {
-            delivery_status: 'assigning', // Lalamove standard status
-            lalamove_order_id: realOrder.orderId,
-            lalamove_share_link: realOrder.shareLink,
-            lalamoveStatus: 'assigned', // Keep for UI compatibility
-            lalamoveRiderName: 'Waiting for Rider',
-            lalamoveRiderPhone: '-',
-            lalamoveVehicleType: selectedQuote.vehicleNameTh,
-            deliveryFee: selectedQuote.totalFare
-          });
-          return;
-        }
+      const realOrder = await createRealLalamoveOrder(
+        selectedQuote.quotationId,
+        order.customerName || 'Customer',
+        order.customerPhone || '',
+        selectedQuote.stopIds || []
+      );
+      if (realOrder) {
+        await updateOrderFields(order.id, {
+          delivery_status: 'assigning', // Lalamove standard status
+          lalamove_order_id: realOrder.orderId,
+          lalamove_share_link: realOrder.shareLink,
+          lalamoveStatus: 'assigned', // Keep for UI compatibility
+          lalamoveRiderName: language === 'th' ? 'กำลังหาไรเดอร์...' : 'Waiting for Rider',
+          lalamoveRiderPhone: '-',
+          lalamoveVehicleType: selectedQuote.vehicleNameTh,
+          deliveryFee: selectedQuote.totalFare
+        });
+      } else {
+        alert(language === 'th'
+          ? 'เรียกไรเดอร์ไม่สำเร็จ (Lalamove ปฏิเสธคำขอ) กรุณาลองใหม่อีกครั้ง'
+          : 'Lalamove booking failed. Please try again.');
       }
-
-      // Fallback simulator behavior
-      const rider = getRandomMockRider();
-      const trackingId = `LALA-${Math.floor(100000000 + Math.random() * 900000000)}`;
-
-      await updateOrderFields(order.id, {
-        lalamoveStatus: 'assigned',
-        lalamoveTrackingId: trackingId,
-        lalamoveRiderName: rider.name,
-        lalamoveRiderPhone: rider.phone,
-        lalamoveVehicleType: selectedQuote.vehicleNameTh,
-        deliveryFee: selectedQuote.totalFare // Update order delivery fee to match vehicle selection
-      });
     } catch (e) {
       console.error("Lalamove dispatch failed:", e);
+      alert(language === 'th' ? 'เรียกไรเดอร์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' : 'Dispatch failed, please retry.');
     } finally {
       setIsBooking(false);
     }
@@ -181,7 +171,7 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
     }
   };
 
-  const status = order.lalamoveStatus || 'none';
+  const status = deriveStatus();
 
   return (
     <div className="bg-orange-50/70 border border-orange-200 rounded-xl p-3 mt-3 shadow-xs space-y-3 animate-fade-in text-sm">
@@ -260,18 +250,31 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
             ))}
           </div>
 
+          {!hasRealQuote && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs font-bold flex items-start gap-1.5">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <span>
+                {language === 'th'
+                  ? 'ยังไม่ได้ราคาจริงจาก Lalamove (ราคาที่เห็นเป็นตัวเลขประมาณ) — เรียกไรเดอร์จริงไม่ได้ กรุณาตรวจพิกัด [GPS Pin] ในที่อยู่ลูกค้า'
+                  : 'No real Lalamove quotation (prices shown are estimates) — real dispatch disabled. Check the customer GPS pin.'}
+              </span>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={handleDispatch}
-            disabled={isBooking}
-            className="w-full bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white py-2.5 rounded-lg font-bold shadow-sm transition flex items-center justify-center gap-1.5"
+            disabled={isBooking || !hasRealQuote}
+            className={`w-full py-2.5 rounded-lg font-bold shadow-sm transition flex items-center justify-center gap-1.5 ${hasRealQuote ? 'bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
           >
             {isBooking ? (
               <Loader2 className="animate-spin" size={14} />
             ) : (
               <Play size={12} />
             )}
-            {language === 'th' ? 'เรียกไรเดอร์ Lalamove ทันที' : 'Book Lalamove Dispatch'}
+            {hasRealQuote
+              ? (language === 'th' ? 'เรียกไรเดอร์ Lalamove ทันที (ราคาจริง)' : 'Book Lalamove Dispatch')
+              : (language === 'th' ? 'เรียกไรเดอร์ไม่ได้ — ไม่มีราคาจริง' : 'Dispatch disabled — no real quote')}
           </button>
         </div>
       ) : (
