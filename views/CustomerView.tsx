@@ -413,6 +413,34 @@ export const CustomerView: React.FC = () => {
   const [availableQuotes, setAvailableQuotes] = useState<any[]>([]); // all vehicle quotes (motorcycle/car/pickup)
   const [selectedVehicle, setSelectedVehicle] = useState<'motorcycle' | 'car' | 'pickup'>('motorcycle');
 
+  // --- Deep links (?open=...) e.g. from the LINE OA rich menu ---
+  // ?open=order  -> jump straight to the pizza menu
+  // ?open=member -> open member profile (logged in) or the signup form (guest)
+  // ?open=promo  -> promotions tab (also the default landing)
+  useEffect(() => {
+      if (typeof window === 'undefined') return;
+      const params = new URLSearchParams(window.location.search);
+      const openParam = params.get('open');
+      if (!openParam) return;
+      if (openParam === 'order' || openParam === 'menu') {
+          setActiveCategory('pizza');
+      } else if (openParam === 'member' || openParam === 'signup' || openParam === 'register') {
+          if (customer) {
+              setShowProfile(true);
+          } else {
+              setAuthMode('register');
+              setShowAuthModal(true);
+          }
+      } else if (openParam === 'promo' || openParam === 'promotion') {
+          setActiveCategory('promotion');
+      }
+      // Remove the param so a refresh doesn't re-trigger the deep link
+      params.delete('open');
+      const qs = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
       let isMounted = true;
       if (hasMapPin && orderType === 'delivery') {
