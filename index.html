@@ -6,6 +6,10 @@
     <title>Pizza Damac Nonthaburi | พิซซ่าอิตาเลียนแท้ สั่งออนไลน์-เดลิเวอรี่</title>
     <meta name="description" content="Pizza Damac พิซซ่าโฮมเมดสไตล์อิตาเลียนแท้ ย่านนนทบุรี-ปากเกร็ด สั่งออนไลน์ รับที่ร้าน หรือเดลิเวอรี่ส่งถึงบ้าน สมัครสมาชิกฟรีรับคูปองส่วนลดทันที เดือนเกิดลดเพิ่ม 15%!" />
     <meta name="theme-color" content="#EA580C" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Pizza Damac" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="canonical" href="https://pizzadamac.com/" />
@@ -44,5 +48,36 @@
   <body class="bg-orange-50 text-gray-900 antialiased">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
+    <script>
+      // PWA: register the (safe, minimal) service worker
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+      // Floating "install app" button (Android/Chrome shows it when installable)
+      var damacDeferredPrompt = null;
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        damacDeferredPrompt = e;
+        if (document.getElementById('pwa-install-btn')) return;
+        var btn = document.createElement('button');
+        btn.id = 'pwa-install-btn';
+        btn.innerHTML = '\uD83D\uDCF2 ติดตั้งแอป Pizza Damac';
+        btn.style.cssText = 'position:fixed;bottom:88px;left:50%;transform:translateX(-50%);z-index:9999;background:#EA580C;color:#fff;font-weight:700;border:none;border-radius:9999px;padding:11px 20px;box-shadow:0 6px 20px rgba(0,0,0,.28);font-size:14px;cursor:pointer;font-family:inherit;';
+        btn.onclick = function () {
+          btn.remove();
+          if (damacDeferredPrompt) {
+            damacDeferredPrompt.prompt();
+            damacDeferredPrompt = null;
+          }
+        };
+        document.body.appendChild(btn);
+        setTimeout(function () { var b = document.getElementById('pwa-install-btn'); if (b) b.remove(); }, 30000);
+      });
+      window.addEventListener('appinstalled', function () {
+        var b = document.getElementById('pwa-install-btn'); if (b) b.remove();
+      });
+    </script>
   </body>
 </html>
