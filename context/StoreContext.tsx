@@ -1387,6 +1387,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return () => { active = false; try { authSub?.subscription?.unsubscribe(); } catch (e) {} };
   }, []);
 
+  // Customers no longer receive realtime order events (orders table is
+  // staff-only), so poll their own orders every 20s instead.
+  useEffect(() => {
+      if (!isSupabaseConfigured || isAdminLoggedIn) return;
+      const iv = setInterval(() => { fetchOrders(); }, 20000);
+      return () => clearInterval(iv);
+  }, [isAdminLoggedIn]);
+
+  // When staff sign in, refetch with full table visibility.
+  useEffect(() => {
+      if (isSupabaseConfigured && isAdminLoggedIn) fetchOrders();
+  }, [isAdminLoggedIn]);
+
   // Staff sign in with EMAIL + PASSWORD via Supabase Auth. This makes every DB
   // request from this browser run as an authenticated staff user, which the new
   // RLS policies require for POS / Kitchen. Customers never sign in (they stay public).
@@ -1834,7 +1847,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const fetchOrders = async () => {
       if (!isSupabaseConfigured) return;
       try {
-          const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+          // Staff (signed in) read the whole orders table; customers only get
+          // their own orders via the track_orders RPC (table is staff-only now).
+          let data: any[] | null = null;
+          let error: any = null;
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData && sessionData.session) {
+              const res = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+              data = res.data; error = res.error;
+          } else {
+              let myIds: string[] = [];
+              try { myIds = JSON.parse(localStorage.getItem('damac_my_order_ids') || '[]'); } catch (e) {}
+              const myPhone = customer && customer.phone ? customer.phone : null;
+              if ((!myIds || myIds.length === 0) && !myPhone) { setOrders([]); return; }
+              const res = await supabase.rpc('track_orders', { p_ids: myIds || [], p_phone: myPhone });
+              data = res.data; error = res.error;
+          }
           if (error) {
               if (error.code === '42P01') {
                   console.warn("Table 'orders' missing. Please run SQL script.");
@@ -2698,15 +2726,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           // Save to Supabase
           if (isSupabaseConfigured) {
               try {
-                  const { error } = await supabase
-                      .from('orders')
-                      .update({
-                          items: updatedOrder.items,
-                          total_amount: updatedOrder.totalAmount,
-                          net_amount: updatedOrder.netAmount,
-                          note: updatedOrder.note
-                      })
-                      .eq('id', existingOrder.id);
+                  const { error } = await supabase.rpc('customer_update_order', { p_id: existingOrder.id, p: {
+                      items: updatedOrder.items,
+                      total_amount: updatedOrder.totalAmount,
+                      net_amount: updatedOrder.netAmount,
+                      note: updatedOrder.note
+                  } });
                   if (error) throw error;
               } catch (e: any) {
                   console.error("Failed to update and merge order in Supabase:", e);
@@ -2735,6 +2760,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               }
           }
 
+          // Remember this order id for customer-side tracking
+          try {
+              const myIds = JSON.parse(localStorage.getItem('damac_my_order_ids') || '[]');
+              const nextIds = [existingOrder.id, ...myIds.filter((x: string) => x !== existingOrder.id)].slice(0, 15);
+              localStorage.setItem('damac_my_order_ids', JSON.stringify(nextIds));
+          } catch (e) {}
           // Clear cart
           clearCart();
           return true;
@@ -2849,6 +2880,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
 
       setOrders(prev => [newOrder, ...prev]);
+      // Remember this device's own orders so tracking keeps working now that
+      // the orders table is staff-only (feeds the track_orders RPC).
+      try {
+          const myIds = JSON.parse(localStorage.getItem('damac_my_order_ids') || '[]');
+          const nextIds = [newOrder.id, ...myIds.filter((x: string) => x !== newOrder.id)].slice(0, 15);
+          localStorage.setItem('damac_my_order_ids', JSON.stringify(nextIds));
+      } catch (e) {}
       
       // Update promo code usage count
       if (details?.promoCode) {
@@ -3013,12 +3051,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const newNet = subtotal * (1 - (GP_RATES[order.source] || 0));
 
       if (isSupabaseConfigured) {
-          await supabase.from('orders').update({ 
-              type: 'pickup', 
-              delivery_fee: 0,
+          await supabase.rpc('customer_update_order', { p_id: orderId, p: {
+              to_pickup: 'true',
               total_amount: subtotal,
               net_amount: newNet
-          }).eq('id', orderId);
+          } });
       }
       
       setOrders(prev => prev.map(o => o.id === orderId ? { 
@@ -3176,7 +3213,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const submitOrderFeedback = async (orderId: string, rating: number, comment: string) => {
       if (isSupabaseConfigured) {
           try {
-              const { error } = await supabase.from('orders').update({ rating, comment }).eq('id', orderId);
+              const { error } = await supabase.rpc('customer_update_order', { p_id: orderId, p: { rating, comment } });
               if (error) console.error("Error updating order feedback", error);
           } catch (e) {
               console.error("Supabase feedback update failed", e);
