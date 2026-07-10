@@ -325,16 +325,18 @@ async function startServer() {
             let mappedStatus = status.toLowerCase();
             if (status === 'ON_GOING') mappedStatus = 'ongoing';
             
-            await fetch(`${supabaseUrl}/rest/v1/orders?lalamove_order_id=eq.${orderId}`, {
-                method: 'PATCH',
+            // orders table is staff-only now; the webhook goes through a narrow
+            // SECURITY DEFINER RPC that can only touch delivery_status.
+            await fetch(`${supabaseUrl}/rest/v1/rpc/webhook_update_delivery_status`, {
+                method: 'POST',
                 headers: {
                     'apikey': supabaseKey,
                     'Authorization': `Bearer ${supabaseKey}`,
-                    'Content-Type': 'application/json',
-                    'Prefer': 'return=minimal'
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    delivery_status: mappedStatus
+                    p_lalamove_order_id: orderId,
+                    p_status: mappedStatus
                 })
             });
         }
