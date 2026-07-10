@@ -1049,9 +1049,13 @@ export const CustomerView: React.FC = () => {
         }
         if (lastId) {
             if (paymentMethod === 'qr_transfer') {
-                setShowQRModal(false);
+                // Show the PromptPay QR FIRST so the customer pays before tracking.
+                // The "I have paid" button inside the modal navigates to tracking.
+                setQrAmount(Math.max(0, cartTotal + deliveryFee - calculatedDiscount - calculatedCouponDiscount));
+                setShowQRModal(true);
+            } else {
+                navigateTo('track', lastId);
             }
-            navigateTo('track', lastId);
         }
      }
   };
@@ -2460,27 +2464,27 @@ export const CustomerView: React.FC = () => {
                                                      </button>
                                                  </div>
 
-                                                 <div className="space-y-4">
-                                                     {/* 1. Address Text */}
-                                                     <div className="space-y-1.5">
+                                                 <div className="flex flex-col gap-4">
+                                                     {/* STEP 2 (shown after the map): Address details */}
+                                                     <div className="space-y-1.5 order-3">
                                                          <label className="text-xs font-extrabold text-gray-700 uppercase flex items-center gap-1">
-                                                             <span className="w-5 h-5 rounded-full bg-brand-200 text-brand-700 flex items-center justify-center text-[10px]">1</span>
-                                                             {language === 'th' ? 'ตรวจสอบและพิมพ์ที่อยู่จัดส่งของคุณ' : 'Check & Enter Delivery Address'} <span className="text-red-500">*</span>
+                                                             <span className="w-5 h-5 rounded-full bg-brand-200 text-brand-700 flex items-center justify-center text-[10px]">2</span>
+                                                             {language === 'th' ? 'รายละเอียดที่อยู่ (บ้านเลขที่ / ซอย / จุดสังเกต)' : 'Address Details (house no, soi, landmark)'} <span className="text-red-500">*</span>
                                                          </label>
-                                                         <textarea 
-                                                            className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-500 outline-none min-h-[80px]" 
-                                                            placeholder={language === 'th' ? "เช่น 99/9 หมู่ 1 ซอยพหลโยธิน 2 แขวงสามเสนใน พญาไท กทม 10400" : "Enter house no, street, sub-district, etc..."}
+                                                         <textarea
+                                                            className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-500 outline-none min-h-[80px]"
+                                                            placeholder={language === 'th' ? "เช่น 99/9 หมู่ 1 ซอยพหลโยธิน 2 ตึกสีฟ้า ฝากไว้ป้อมยาม" : "Enter house no, street, sub-district, etc..."}
                                                             value={deliveryAddress}
                                                             onChange={e => setDeliveryAddress(e.target.value)}
                                                          />
                                                      </div>
 
                                                      {/* Phone Number */}
-                                                     <div className="space-y-1.5">
+                                                     <div className="space-y-1.5 order-4">
                                                          <label className="text-xs font-extrabold text-gray-700 uppercase flex items-center gap-1">
                                                              <Phone size={14} className="text-brand-500 ml-1"/> {language === 'th' ? 'เบอร์โทรติดต่อลูกค้า' : 'Contact Phone'} <span className="text-red-500">*</span>
                                                          </label>
-                                                         <input 
+                                                         <input
                                                              type="tel"
                                                              className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-500 outline-none font-bold"
                                                              placeholder={language === 'th' ? 'เช่น 0891234567' : 'e.g. 0891234567'}
@@ -2489,11 +2493,10 @@ export const CustomerView: React.FC = () => {
                                                          />
                                                      </div>
 
-                                                     {/* 2. Google Maps URL or Coordinates */}
-                                                     <div className="space-y-1.5 pt-2 border-t border-brand-200/50">
-                                                         <label className="text-xs font-extrabold text-gray-700 uppercase flex items-center gap-1">
-                                                             <span className="w-5 h-5 rounded-full bg-brand-200 text-brand-700 flex items-center justify-center text-[10px]">2</span>
-                                                             {language === 'th' ? 'ใส่ลิงก์พิกัดจาก Google Maps (ถ้ามี)' : 'Paste Google Maps Link (If Any)'}
+                                                     {/* Optional: paste a Google Maps link (compact, no longer a numbered step) */}
+                                                     <div className="space-y-1.5 order-2">
+                                                         <label className="text-[11px] font-bold text-gray-500 flex items-center gap-1">
+                                                             {language === 'th' ? '💡 ทางเลือก: มีลิงก์แผนที่จาก Google Maps? วางที่นี่ได้เลย (ไม่บังคับ)' : '💡 Optional: paste a Google Maps link here'}
                                                          </label>
                                                          <div className="relative">
                                                              <Globe size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
@@ -2581,9 +2584,16 @@ export const CustomerView: React.FC = () => {
                                                          )}
                                                      </div>
 
-                                                     {/* 2.5 Google Interactive Map Selector */}
-                                                     <div className="pt-2">
-                                                         <DeliveryMap 
+                                                     {/* STEP 1: Interactive map — pin first, everything else follows */}
+                                                     <div className="order-1">
+                                                         <label className="text-xs font-extrabold text-gray-700 uppercase flex items-center gap-1 mb-1.5">
+                                                             <span className="w-5 h-5 rounded-full bg-brand-200 text-brand-700 flex items-center justify-center text-[10px]">1</span>
+                                                             {language === 'th' ? 'ปักหมุดจุดส่งอาหาร' : 'Pin your delivery location'} <span className="text-red-500">*</span>
+                                                         </label>
+                                                         <p className="text-[11px] text-gray-500 font-bold mb-2 leading-snug">
+                                                             {language === 'th' ? 'ง่ายสุด: กดปุ่มเขียว "ดึงพิกัดปัจจุบัน (Use GPS)" ในกล่องแผนที่ • หรือค้นหา/แตะ/ลากหมุดบนแผนที่ให้ตรงบ้านคุณ' : 'Easiest: tap the green "Use GPS" button in the map box • or search / tap / drag the pin'}
+                                                         </p>
+                                                         <DeliveryMap
                                                              lat={deliveryLat}
                                                              lng={deliveryLng}
                                                              storeLat={storeCoords.lat}
@@ -2593,16 +2603,18 @@ export const CustomerView: React.FC = () => {
                                                                  setDeliveryLat(newLat);
                                                                  setDeliveryLng(newLng);
                                                                  setHasMapPin(true);
-                                                                 setDeliveryAddress(addrName);
+                                                                 // Fill the address from the map ONLY if the customer hasn't typed their own —
+                                                                 // never overwrite what they already wrote (old bug: map wiped the typed address)
+                                                                 setDeliveryAddress(prev => (prev && prev.trim().length > 0) ? prev : addrName);
                                                              }}
                                                          />
                                                      </div>
 
-                                                     {/* 3. Options to save address (Max 2) */}
-                                                     <div className="space-y-1.5 pt-2 border-t border-brand-200/50">
+                                                     {/* STEP 3: Save address for next time */}
+                                                     <div className="space-y-1.5 pt-2 border-t border-brand-200/50 order-5">
                                                          <label className="text-xs font-extrabold text-gray-700 uppercase flex items-center gap-1">
                                                              <span className="w-5 h-5 rounded-full bg-brand-200 text-brand-700 flex items-center justify-center text-[10px]">3</span>
-                                                             {language === 'th' ? 'บันทึกที่อยู่นี้ไว้ใช้ครั้งหน้าไหม?' : 'Save this address for next time?'}
+                                                             {language === 'th' ? 'บันทึกที่อยู่นี้ไว้ใช้ครั้งหน้า (ระบบบันทึกให้อัตโนมัติตอนกดสั่งซื้อ)' : 'Save this address for next time? (saved automatically when you order)'}
                                                          </label>
                                                          <div className="flex gap-2">
                                                              <label className={`flex-1 flex flex-col items-center justify-center border rounded-lg p-3 cursor-pointer transition ${addressSaveType === 'home' ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
@@ -3771,36 +3783,53 @@ export const CustomerView: React.FC = () => {
             </div>
         )}
 
-        {/* QR Code Payment Modal */}
+        {/* QR Code Payment Modal (Pizza Damac branded) */}
         {showQRModal && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-                <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 text-center shadow-brand-500/10">
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">{language === 'th' ? 'สแกนเพื่อชำระเงิน' : 'Scan to Pay'}</h3>
-                    <p className="text-gray-500 mb-6 text-sm">{language === 'th' ? 'กรุณาสแกน QR Code นี้ผ่านแอปธนาคาร' : 'Please scan this QR Code via your bank app'}</p>
-                    
-                    <div className="flex flex-col items-center justify-center p-4 bg-gray-50 rounded-xl mb-4 border-2 border-brand-100 mx-auto w-fit">
-                         <QRCodeCanvas id="promptpay-qr-modal" value={generatePromptPayPayload(storeSettings.promptPayNumber || DEFAULT_STORE_SETTINGS.promptPayNumber!, qrAmount)} size={200} level="M" includeMargin={true} />
-                         <button 
-                             type="button"
-                             onClick={() => handleDownloadQR('promptpay-qr-modal', 'Payment')}
-                             className="mt-3 flex items-center justify-center gap-1.5 px-4 py-2 bg-brand-600 text-white hover:bg-brand-700 active:scale-95 text-xs font-bold rounded-lg transition shadow-md w-full"
-                         >
-                             <Download size={13} className="text-white"/>
-                             <span>{language === 'th' ? 'บันทึกรูป QR ลงเครื่อง' : 'Save QR Image'}</span>
-                         </button>
+                <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden shadow-brand-500/10">
+                    {/* Branded header — customers know this QR belongs to Pizza Damac */}
+                    <div className="bg-gradient-to-r from-brand-600 to-orange-500 px-6 py-4 text-white text-center">
+                        <div className="text-2xl leading-none mb-1">🍕</div>
+                        <h3 className="text-lg font-extrabold tracking-wide">PIZZA DAMAC</h3>
+                        <p className="text-[11px] font-bold text-orange-100">
+                            {language === 'th' ? `ชำระค่าออเดอร์ #${String(localOrderId || '').slice(-4)} • PromptPay` : `Payment for order #${String(localOrderId || '').slice(-4)} • PromptPay`}
+                        </p>
                     </div>
-                    
-                    <div className="text-3xl font-extrabold text-brand-600 mb-6">฿{qrAmount}</div>
-                    
-                    <p className="text-xs text-gray-400 mb-6">
-                        {language === 'th' ? 'กรุณาแสดงหน้าจอนี้ต่อพนักงาน หรือแนบสลิปผ่านทาง Line Official ของร้าน หากสั่งออนไลน์' : 'Please show this to staff, or send the slip to our Line OA'}
-                    </p>
-                    <button 
-                        onClick={() => { setShowQRModal(false); setShowTracker(true); }}
-                        className="w-full bg-brand-600 active:bg-brand-700 text-white font-bold py-4 rounded-xl shadow-lg transition"
-                    >
-                        {language === 'th' ? 'ชำระเงินเรียบร้อยแแล้ว' : 'I have paid'}
-                    </button>
+
+                    <div className="p-6 text-center">
+                        <p className="text-gray-500 mb-4 text-sm font-bold">{language === 'th' ? 'สแกน QR นี้ด้วยแอปธนาคารเพื่อชำระเงิน' : 'Scan this QR with your banking app'}</p>
+
+                        <div className="flex flex-col items-center justify-center p-4 bg-gray-50 rounded-xl mb-4 border-2 border-brand-200 mx-auto w-fit relative">
+                             <QRCodeCanvas id="promptpay-qr-modal" value={generatePromptPayPayload(storeSettings.promptPayNumber || DEFAULT_STORE_SETTINGS.promptPayNumber!, qrAmount)} size={200} level="M" includeMargin={true} />
+                             <div className="text-[10px] font-black text-gray-400 mt-1 tracking-widest uppercase">Pizza Damac Nonthaburi</div>
+                             <button
+                                 type="button"
+                                 onClick={() => handleDownloadQR('promptpay-qr-modal', 'Payment')}
+                                 className="mt-2 flex items-center justify-center gap-1.5 px-4 py-2 bg-brand-600 text-white hover:bg-brand-700 active:scale-95 text-xs font-bold rounded-lg transition shadow-md w-full"
+                             >
+                                 <Download size={13} className="text-white"/>
+                                 <span>{language === 'th' ? 'บันทึกรูป QR ลงเครื่อง' : 'Save QR Image'}</span>
+                             </button>
+                        </div>
+
+                        <div className="text-3xl font-extrabold text-brand-600 mb-4">฿{qrAmount}</div>
+
+                        <p className="text-xs text-gray-400 mb-5 leading-relaxed">
+                            {language === 'th' ? 'โอนแล้วกดปุ่มด้านล่างเพื่อติดตามออเดอร์ • ส่งสลิปได้ทาง LINE ของร้าน' : 'After paying, tap below to track your order • You can send the slip via our LINE OA'}
+                        </p>
+                        <button
+                            onClick={() => { setShowQRModal(false); if (localOrderId) { navigateTo('track', localOrderId); } else { setShowTracker(true); } }}
+                            className="w-full bg-brand-600 active:bg-brand-700 text-white font-bold py-4 rounded-xl shadow-lg transition"
+                        >
+                            {language === 'th' ? '✅ ชำระเงินแล้ว — ติดตามออเดอร์' : '✅ I have paid — Track my order'}
+                        </button>
+                        <button
+                            onClick={() => { setShowQRModal(false); if (localOrderId) { navigateTo('track', localOrderId); } else { setShowTracker(true); } }}
+                            className="w-full mt-2 text-gray-400 hover:text-gray-600 text-xs font-bold py-2 transition"
+                        >
+                            {language === 'th' ? 'ขอจ่ายทีหลัง (ดู QR ได้อีกครั้งในหน้าติดตามออเดอร์)' : 'Pay later (QR available again on the tracking page)'}
+                        </button>
+                    </div>
                 </div>
             </div>
         )}

@@ -2998,9 +2998,69 @@ export const POSView: React.FC = () => {
                                                     )}
                                                 </div>
                                                 <div className="p-4 border-t bg-gray-50 space-y-2.5">
+                                                    {/* ── ORDER FLOW: payment badge + mini stepper ── */}
+                                                    {(() => {
+                                                        const flowIdx = (order.status === 'pending' || order.status === 'confirmed') ? 0
+                                                            : order.status === 'cooking' ? 1
+                                                            : order.status === 'ready' ? 2
+                                                            : 3;
+                                                        const flowSteps = [
+                                                            language === 'th' ? '1.รอยืนยัน' : '1.New',
+                                                            language === 'th' ? '2.กำลังทำ' : '2.Cooking',
+                                                            language === 'th' ? (order.type === 'delivery' ? '3.พร้อมส่ง' : '3.พร้อมเสิร์ฟ') : '3.Ready',
+                                                            language === 'th' ? '4.จบบิล' : '4.Done'
+                                                        ];
+                                                        return (
+                                                            <div className="space-y-1.5">
+                                                                {order.status !== 'cancelled' && (
+                                                                    order.paymentMethod === 'qr_transfer' ? (
+                                                                        flowIdx === 0 ? (
+                                                                            <div className="text-[11px] font-black text-amber-800 bg-amber-100 border border-amber-300 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                                                                                <AlertCircle size={13} className="shrink-0"/>
+                                                                                {language === 'th' ? '💳 QR/โอน — ยังไม่ยืนยันเงินเข้า: เช็คสลิป/ยอดเงินก่อนกดเริ่มทำ' : '💳 QR/Transfer — verify the slip before cooking'}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="text-[11px] font-black text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                                                                                <CheckCircle2 size={13} className="shrink-0"/>
+                                                                                {language === 'th' ? '💳 QR/โอน — ร้านยืนยันรับเงินแล้ว' : '💳 QR/Transfer — payment confirmed'}
+                                                                            </div>
+                                                                        )
+                                                                    ) : (
+                                                                        <div className="text-[11px] font-black text-gray-600 bg-gray-100 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                                                                            💵 {language === 'th' ? `เงินสด${order.type === 'delivery' ? ' (เก็บปลายทาง)' : ''}` : 'Cash'}
+                                                                        </div>
+                                                                    )
+                                                                )}
+                                                                <div className="flex items-center gap-1">
+                                                                    {flowSteps.map((s, i) => (
+                                                                        <React.Fragment key={i}>
+                                                                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${i === flowIdx ? 'bg-brand-600 text-white shadow-sm' : i < flowIdx ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>{s}</span>
+                                                                            {i < flowSteps.length - 1 && <span className="text-gray-300 text-[10px]">›</span>}
+                                                                        </React.Fragment>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+
                                                     {(order.status === 'pending' || order.status === 'confirmed') && (
                                                         <button onClick={() => handleConfirmPaymentAndCook(order.id)} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm transition text-base">
-                                                            <CheckCircle size={18}/> {language === 'th' ? 'ยืนยันรับเงิน & เริ่มทำเลย' : 'Confirm Payment & Cook'}
+                                                            <CheckCircle size={18}/> {language === 'th' ? (order.paymentMethod === 'qr_transfer' ? '✔ เช็คเงินเข้าแล้ว — เริ่มทำเลย' : 'รับออเดอร์ — เริ่มทำเลย') : 'Confirm Payment & Cook'}
+                                                        </button>
+                                                    )}
+                                                    {order.status === 'cooking' && (
+                                                        <button onClick={async () => { playSuccessFeedback(); await updateOrderStatus(order.id, 'ready'); }} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm transition text-base">
+                                                            🍕 {language === 'th' ? 'อาหารพร้อมแล้ว (แจ้งลูกค้าอัตโนมัติ)' : 'Food Ready (notify customer)'}
+                                                        </button>
+                                                    )}
+                                                    {order.status === 'ready' && order.type === 'delivery' && !order.lalamove_order_id && (
+                                                        <div className="text-xs font-black text-orange-800 bg-orange-100 border border-orange-300 rounded-xl px-3 py-2.5 text-center">
+                                                            🛵 {language === 'th' ? 'อาหารพร้อมแล้ว — เรียกไรเดอร์ที่กล่อง Lalamove ด้านบน ↑' : 'Ready — book the rider in the Lalamove panel above ↑'}
+                                                        </div>
+                                                    )}
+                                                    {order.status === 'ready' && (order.type !== 'delivery' || order.lalamove_order_id) && (
+                                                        <button onClick={() => handleCloseTable(order.id)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm transition text-base">
+                                                            <CheckCircle2 size={18}/> {language === 'th' ? (order.type === 'delivery' ? 'ส่งสำเร็จ — ปิดบิล' : 'ลูกค้ารับ/เสิร์ฟแล้ว — ปิดบิล') : 'Complete & Close Bill'}
                                                         </button>
                                                     )}
                                                     <button onClick={() => handleCheckTableBill(order)} className="w-full bg-brand-600 hover:bg-brand-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm transition text-base"><Receipt size={18}/> Check Bill & Print</button>
@@ -5096,17 +5156,17 @@ export const POSView: React.FC = () => {
                                         </p>
                                         <p className="text-xs text-emerald-800 leading-relaxed">
                                             {language === 'th'
-                                                ? 'กดปุ่มเดียว ระบบตั้งค่าให้ครบ: โหมด Bluetooth + รหัสภาษาไทย Code Page 26 (ค่าที่ถูกต้องของ Welltech G5) + เปิดพิมพ์ใบเสร็จอัตโนมัติ — เลือกปุ่มตามหน้ากว้างกระดาษของเครื่อง เสร็จแล้วกด "ค้นหา & เชื่อมต่อเครื่องพิมพ์" ด้านล่างอีก 1 ครั้ง'
-                                                : 'One tap applies every Welltech G5 setting: Bluetooth mode + Thai Code Page 26 + auto-print. Pick your paper width, then tap "Search & Connect" below once.'}
+                                                ? 'กดปุ่มเดียว ระบบตั้งค่าให้ครบ: โหมด Bluetooth + ภาษาไทยแบบรูปภาพกราฟิก (ไทยถูกต้อง 100% ทุกเครื่อง ไม่มีตัวต่างดาว) + เปิดพิมพ์ใบเสร็จอัตโนมัติ — เลือกปุ่มตามหน้ากว้างกระดาษของเครื่อง เสร็จแล้วกด "ค้นหา & เชื่อมต่อเครื่องพิมพ์" ด้านล่างอีก 1 ครั้ง'
+                                                : 'One tap applies every Welltech G5 setting: Bluetooth mode + Thai GRAPHIC mode (Thai renders perfectly on every printer) + auto-print. Pick your paper width, then tap "Search & Connect" below once.'}
                                         </p>
                                         <div className="flex gap-2">
                                             <button
                                                 onClick={() => {
                                                     setPrinterType('bluetooth');
-                                                    setThaiCodePage('tis620-26');
+                                                    setThaiCodePage('graphic-58');
                                                     setPaperSize('58mm');
                                                     setAutoPrintNewOrders(true);
-                                                    alert(language === 'th' ? '✅ ตั้งค่า Welltech G5 (กระดาษ 58mm) เรียบร้อย!\n\nขั้นตอนสุดท้าย: เลื่อนลงไปกดปุ่ม "ค้นหา & เชื่อมต่อเครื่องพิมพ์" เลือก Printer001 หนึ่งครั้ง แล้วลองพิมพ์ใบทดสอบ' : '✅ Welltech G5 (58mm) configured! Now tap "Search & Connect" below, pick Printer001, then print a test slip.');
+                                                    alert(language === 'th' ? '✅ ตั้งค่า Welltech G5 (กระดาษ 58mm, ภาษาไทยโหมดรูปภาพ) เรียบร้อย!\n\nขั้นตอนสุดท้าย: เลื่อนลงไปกดปุ่ม "ค้นหา & เชื่อมต่อเครื่องพิมพ์" เลือก Printer001 หนึ่งครั้ง แล้วลองพิมพ์ใบทดสอบ — ภาษาไทยจะคมชัดไม่มีเพี้ยน' : '✅ Welltech G5 (58mm, Thai graphic mode) configured! Now tap "Search & Connect" below, pick Printer001, then print a test slip.');
                                                 }}
                                                 className="flex-1 bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-lg text-sm hover:bg-emerald-700 active:scale-95 transition-all"
                                             >
@@ -5115,10 +5175,10 @@ export const POSView: React.FC = () => {
                                             <button
                                                 onClick={() => {
                                                     setPrinterType('bluetooth');
-                                                    setThaiCodePage('tis620-26');
+                                                    setThaiCodePage('graphic-80');
                                                     setPaperSize('80mm');
                                                     setAutoPrintNewOrders(true);
-                                                    alert(language === 'th' ? '✅ ตั้งค่า Welltech G5 (กระดาษ 80mm) เรียบร้อย!\n\nขั้นตอนสุดท้าย: เลื่อนลงไปกดปุ่ม "ค้นหา & เชื่อมต่อเครื่องพิมพ์" เลือก Printer001 หนึ่งครั้ง แล้วลองพิมพ์ใบทดสอบ' : '✅ Welltech G5 (80mm) configured! Now tap "Search & Connect" below, pick Printer001, then print a test slip.');
+                                                    alert(language === 'th' ? '✅ ตั้งค่า Welltech G5 (กระดาษ 80mm, ภาษาไทยโหมดรูปภาพ) เรียบร้อย!\n\nขั้นตอนสุดท้าย: เลื่อนลงไปกดปุ่ม "ค้นหา & เชื่อมต่อเครื่องพิมพ์" เลือก Printer001 หนึ่งครั้ง แล้วลองพิมพ์ใบทดสอบ — ภาษาไทยจะคมชัดไม่มีเพี้ยน' : '✅ Welltech G5 (80mm, Thai graphic mode) configured! Now tap "Search & Connect" below, pick Printer001, then print a test slip.');
                                                 }}
                                                 className="flex-1 bg-emerald-500 text-white font-bold py-2.5 px-3 rounded-lg text-sm hover:bg-emerald-600 active:scale-95 transition-all"
                                             >
@@ -5127,8 +5187,8 @@ export const POSView: React.FC = () => {
                                         </div>
                                         <p className="text-[11px] text-emerald-700 leading-relaxed">
                                             {language === 'th'
-                                                ? '* ไม่แน่ใจขนาดกระดาษ: G5 รุ่นพกพาส่วนใหญ่ใช้ 58mm — ถ้าพิมพ์แล้วใบเสร็จผิดสัดส่วน กดอีกปุ่มแทนได้เลย และถ้าภาษาไทยยังเพี้ยนอยู่ ให้เปลี่ยน "รหัสภาษาไทย" เป็นโหมดกราฟิก (Graphic-58/80) ซึ่งชัวร์ 100% ทุกเครื่อง'
-                                                : '* Not sure about paper width? Most portable G5s use 58mm - if the layout looks wrong just tap the other button. If Thai still garbles, switch the Thai code page to Graphic mode (works on every printer).'}
+                                                ? '* ไม่แน่ใจขนาดกระดาษ: G5 รุ่นพกพาส่วนใหญ่ใช้ 58mm — ถ้าพิมพ์แล้วใบเสร็จผิดสัดส่วน กดอีกปุ่มแทนได้เลย (โหมดรูปภาพพิมพ์ช้ากว่าโหมดข้อความเล็กน้อย แต่ภาษาไทยถูกต้องแน่นอน)'
+                                                : '* Not sure about paper width? Most portable G5s use 58mm — if the layout looks wrong just tap the other button. (Graphic mode prints slightly slower than text mode but Thai is always correct.)'}
                                         </p>
                                     </div>
 
