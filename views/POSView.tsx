@@ -1108,6 +1108,29 @@ export const POSView: React.FC = () => {
         });
     };
 
+    // --- HELPER: UPLOAD IMAGE TO SUPABASE STORAGE (menu-images bucket) ---
+    // Keeps the DB tiny: the image file lives on the CDN, the DB stores only a short URL.
+    // Falls back to the inline base64 image if the upload fails, so nothing ever breaks.
+    const uploadImageToStorage = async (dataUrl: string, prefix: string): Promise<string> => {
+        try {
+            const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
+            if (!m) return dataUrl; // already a URL or unknown format
+            const mime = m[1];
+            const ext = mime.split('/')[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+            const bin = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const path = `${prefix}-${Date.now()}.${ext}`;
+            const { error } = await supabase.storage.from('menu-images').upload(path, bytes, { contentType: mime, upsert: true });
+            if (error) { console.error('Storage upload failed, keeping inline image', error); return dataUrl; }
+            const { data } = supabase.storage.from('menu-images').getPublicUrl(path);
+            return data?.publicUrl || dataUrl;
+        } catch (e) {
+            console.error('Storage upload error, keeping inline image', e);
+            return dataUrl;
+        }
+    };
+
     // Active Tables Logic - Show active or unpaid orders
     const activeTables = (orders || []).filter(o => 
         o && 
@@ -1800,10 +1823,11 @@ export const POSView: React.FC = () => {
     // UPDATED: Compress Image Handlers
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) { 
+        if (file) {
             try {
                 const compressed = await compressImage(file, 800); // 800px max width for menu
-                setItemForm({ ...itemForm, image: compressed }); 
+                const url = await uploadImageToStorage(compressed, `menu-${itemForm.id || 'new'}`);
+                setItemForm({ ...itemForm, image: url });
             } catch (error) {
                 alert("Failed to process image. Try a smaller file.");
             }
@@ -1835,10 +1859,11 @@ export const POSView: React.FC = () => {
     };
     const handleToppingImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) { 
+        if (file) {
             try {
                 const compressed = await compressImage(file, 400); // 400px max width for toppings
-                setToppingForm({ ...toppingForm, image: compressed }); 
+                const url = await uploadImageToStorage(compressed, 'topping');
+                setToppingForm({ ...toppingForm, image: url });
             } catch(e) {
                 alert("Image error");
             }
@@ -1847,32 +1872,35 @@ export const POSView: React.FC = () => {
 
     const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) { 
+        if (file) {
             try {
                 const compressed = await compressImage(file, 200); // 200px max width for logo
-                updateShopLogo(compressed);
+                const url = await uploadImageToStorage(compressed, 'logo');
+                updateShopLogo(url);
             } catch(e) { alert("Logo upload failed"); }
         }
     };
-    
+
     const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) { 
+        if (file) {
             try {
                 const compressed = await compressImage(file, 1200); // 1200px max width for banner
-                setMediaForm(p => ({ ...p, promoBannerUrl: compressed })); 
-                updateStoreSettings({ promoBannerUrl: compressed, promoContentType: 'image' });
+                const url = await uploadImageToStorage(compressed, 'banner');
+                setMediaForm(p => ({ ...p, promoBannerUrl: url }));
+                updateStoreSettings({ promoBannerUrl: url, promoContentType: 'image' });
             } catch(e) { alert("Banner upload failed. Try a smaller image."); }
         }
     };
-    
+
     const handleEventImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) { 
+        if (file) {
             try {
                 const compressed = await compressImage(file, 400); // 400px max width to severely save space
-                const newGallery = [...(mediaForm.eventGalleryUrls || []), compressed]; 
-                setMediaForm(p => ({ ...p, eventGalleryUrls: newGallery })); 
+                const url = await uploadImageToStorage(compressed, 'event');
+                const newGallery = [...(mediaForm.eventGalleryUrls || []), url];
+                setMediaForm(p => ({ ...p, eventGalleryUrls: newGallery }));
             } catch(e) { alert("Gallery upload failed"); }
         }
     };
