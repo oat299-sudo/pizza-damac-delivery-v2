@@ -3038,14 +3038,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
       if (isSupabaseConfigured) {
           await supabase.from('orders').update({ status }).eq('id', orderId);
-          // LINE-notify the customer when their order is ready (fire-and-forget;
+          // LINE-notify the customer on key steps (fire-and-forget;
           // does nothing until the shop configures the LINE OA tokens)
-          if (status === 'ready') {
+          // 'cooking' = shop confirmed the order/payment and started preparing
+          // 'ready'   = food is ready (pickup: come get it / delivery: rider next)
+          if (status === 'ready' || status === 'cooking') {
               try {
                   fetch('/api/line/notify', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ orderId, event: 'ready' })
+                      body: JSON.stringify({ orderId, event: status })
                   }).catch(() => {});
               } catch (e) {}
           }
