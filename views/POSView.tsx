@@ -2887,6 +2887,14 @@ export const POSView: React.FC = () => {
                                                             <Clock size={12}/>
                                                             <span>{formatOrderDateTime(order.createdAt, 'short')}</span>
                                                         </div>
+                                                        {/* PRE-ORDER badge — scheduled orders must NOT be cooked immediately */}
+                                                        {order.pickupTime && order.pickupTime !== 'ASAP' && (
+                                                            <div className="text-xs font-black text-white mt-1.5 flex items-center gap-1.5 bg-purple-600 px-2.5 py-1.5 rounded-lg shadow-sm w-fit animate-pulse">
+                                                                ⏰ {language === 'th'
+                                                                    ? `สั่งล่วงหน้า — ${order.type === 'delivery' ? 'ส่งถึงเวลา' : 'นัดรับ'}: ${String(order.pickupTime).replace('Pre-order: ', '')}`
+                                                                    : `PRE-ORDER — ${String(order.pickupTime).replace('Pre-order: ', '')}`}
+                                                            </div>
+                                                        )}
                                                         {/* Customer Name for Non-Table Orders */}
                                                         {!order.tableNumber && (
                                                             <div className="text-sm font-bold text-gray-600 mt-1.5 flex items-center gap-1">
