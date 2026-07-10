@@ -7,7 +7,7 @@ async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // JSON middleware
-  app.use(express.json());
+  app.use(express.json({ verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
 
   // API to unshorten Google Map links
   app.post("/api/resolve-link", async (req, res) => {
@@ -58,6 +58,137 @@ async function startServer() {
       VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL || '',
       VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY || ''
     });
+  });
+
+  // ---------------- LINE Official Account integration ----------------
+  const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
+  const LINE_SECRET = process.env.LINE_CHANNEL_SECRET || '';
+  const SHOP_URL = 'https://pizzadamac.com';
+
+  const lineApi = async (path: string, body: any) => {
+    if (!LINE_TOKEN) return null;
+    try {
+      return await fetch(`https://api.line.me/v2/bot/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LINE_TOKEN}` },
+        body: JSON.stringify(body)
+      });
+    } catch (e) { console.warn('LINE api error', e); return null; }
+  };
+  const linePush = (to: string, text: string) => lineApi('message/push', { to, messages: [{ type: 'text', text }] });
+  const lineReply = (replyToken: string, text: string) => lineApi('message/reply', { replyToken, messages: [{ type: 'text', text }] });
+
+  const supaRpc = async (fn: string, params: any) => {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return null;
+    try {
+      const r = await fetch(`${supabaseUrl}/rest/v1/rpc/${fn}`, {
+        method: 'POST',
+        headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) { console.warn('supaRpc error', fn, e); return null; }
+  };
+
+  // Push a LINE message to the member owning this phone (if they linked LINE)
+  const lineNotifyByPhone = async (phone: string, text: string) => {
+    if (!LINE_TOKEN || !phone) return false;
+    const rows = await supaRpc('loyalty_lookup', { p_phone: phone });
+    const cust = Array.isArray(rows) ? rows[0] : null;
+    if (!cust || !cust.line_user_id) return false;
+    await linePush(cust.line_user_id, text);
+    return true;
+  };
+
+  // LINE webhook: welcome message, account linking (customer types their phone
+  // number in the chat), and simple keyword replies for the rich menu.
+  app.post('/api/line/webhook', async (req: any, res) => {
+    try {
+      if (LINE_SECRET) {
+        const sig = crypto.createHmac('sha256', LINE_SECRET).update(req.rawBody || Buffer.from('')).digest('base64');
+        if (sig !== req.headers['x-line-signature']) {
+          console.warn('LINE webhook signature mismatch');
+          return res.status(401).send('Invalid signature');
+        }
+      }
+      const events = (req.body && req.body.events) || [];
+      for (const ev of events) {
+        const replyToken = ev.replyToken;
+        const userId = ev.source && ev.source.userId;
+        if (ev.type === 'follow' && replyToken) {
+          await lineReply(replyToken,
+            `ยินดีต้อนรับสู่ Pizza Damac ครับ! 🍕\n\n` +
+            `🛒 สั่งอาหาร: ${SHOP_URL}\n\n` +
+            `🔔 อยากรับแจ้งเตือนสถานะออเดอร์ทาง LINE?\n` +
+            `พิมพ์ "เบอร์โทร" ที่ใช้สมัครสมาชิก/สั่งอาหาร ส่งมาในแชทนี้ได้เลยครับ (เช่น 0812345678)`);
+        } else if (ev.type === 'message' && ev.message && ev.message.type === 'text' && replyToken) {
+          const text = String(ev.message.text || '').trim();
+          const cleaned = text.replace(/[-\s]/g, '');
+          if (/^0\d{8,9}$/.test(cleaned) && userId) {
+            const rows = await supaRpc('loyalty_lookup', { p_phone: cleaned });
+            const cust = Array.isArray(rows) ? rows[0] : null;
+            if (cust && cust.phone) {
+              await supaRpc('loyalty_update', { p_phone: cleaned, p: { line_user_id: userId } });
+              await lineReply(replyToken,
+                `เชื่อมบัญชีสำเร็จครับ! ✅\n\nคุณ ${cust.name || ''} (${cleaned})\n` +
+                `ต่อไปนี้จะได้รับแจ้งเตือนสถานะออเดอร์ทาง LINE นี้อัตโนมัติ 🔔🍕`);
+            } else {
+              await lineReply(replyToken,
+                `ยังไม่พบสมาชิกเบอร์ ${cleaned} ครับ 🙏\n\n` +
+                `สมัครสมาชิกฟรี (รับ 4 คูปองทันที) ได้ที่ ${SHOP_URL} เมนู "Join Us"\n` +
+                `เสร็จแล้วพิมพ์เบอร์มาอีกครั้งครับ`);
+            }
+          } else if (/เมนู|สั่ง|order|menu/i.test(text)) {
+            await lineReply(replyToken, `สั่งอาหารได้เลยครับ 🍕\n${SHOP_URL}\n\nสมาชิกใหม่รับฟรี 4 คูปองส่วนลด และเดือนเกิดลด 15% ทั้งบิลครับ!`);
+          } else if (/โทร|เบอร์ร้าน|call/i.test(text)) {
+            await lineReply(replyToken, `โทรหาร้านได้ที่ 099-497-9199 ครับ 📞`);
+          } else if (/เชื่อม|แจ้งเตือน|notify/i.test(text)) {
+            await lineReply(replyToken, `รับแจ้งเตือนสถานะออเดอร์ทาง LINE 🔔\n\nพิมพ์ "เบอร์โทร" ที่ใช้สมัครสมาชิก/สั่งอาหาร ส่งมาในแชทนี้ได้เลยครับ (เช่น 0812345678)`);
+          } else if (/เวลา|เปิด|ปิด|hours/i.test(text)) {
+            await lineReply(replyToken, `Pizza Damac เปิดทุกวัน 11:00 - 20:30 น. ครับ 🍕\nสั่งล่วงหน้า (Pre-order) ได้ที่ ${SHOP_URL}`);
+          } else {
+            await lineReply(replyToken, `สวัสดีครับ Pizza Damac ยินดีให้บริการ 🍕\n\n🛒 สั่งอาหาร: ${SHOP_URL}\n📞 โทร: 099-497-9199\n🔔 รับแจ้งเตือนออเดอร์: พิมพ์เบอร์โทรของคุณส่งมาได้เลย`);
+          }
+        }
+      }
+      return res.status(200).send('OK');
+    } catch (e: any) {
+      console.error('LINE webhook error', e);
+      return res.status(200).send('OK'); // always ACK so LINE doesn't disable the webhook
+    }
+  });
+
+  // Called by the POS/Kitchen after a status change to notify the customer.
+  app.post('/api/line/notify', async (req, res) => {
+    try {
+      if (!LINE_TOKEN) return res.json({ sent: false, reason: 'LINE not configured' });
+      const { orderId, event } = req.body || {};
+      if (!orderId) return res.status(400).json({ error: 'orderId required' });
+      const rows = await supaRpc('track_orders', { p_ids: [String(orderId)], p_phone: null });
+      const order = Array.isArray(rows) ? rows[0] : null;
+      if (!order || !order.customer_phone) return res.json({ sent: false, reason: 'no phone' });
+      const shortId = String(orderId).slice(-4);
+      let text = '';
+      if (event === 'ready') {
+        text = order.type === 'pickup'
+          ? `✅ ออเดอร์ #${shortId} พร้อมแล้วครับ! มารับได้เลยที่ร้าน Pizza Damac 🍕`
+          : `✅ ออเดอร์ #${shortId} ของคุณพร้อมแล้วครับ 🍕`;
+      } else if (event === 'cooking') {
+        text = `👨‍🍳 ร้านกำลังปรุงออเดอร์ #${shortId} ของคุณครับ`;
+      } else if (event === 'completed') {
+        text = `🙏 ขอบคุณที่อุดหนุน Pizza Damac ครับ! สะสมแต้มจากออเดอร์ #${shortId} ให้เรียบร้อยแล้ว 🍕`;
+      } else {
+        text = `📣 ออเดอร์ #${shortId} อัปเดตสถานะ: ${event}`;
+      }
+      const sent = await lineNotifyByPhone(order.customer_phone, text);
+      return res.json({ sent });
+    } catch (e: any) {
+      console.error('LINE notify error', e);
+      return res.status(500).json({ error: e.message });
+    }
   });
 
   // (The old /api/verify-pin endpoint was removed - staff login now uses
@@ -327,18 +458,35 @@ async function startServer() {
             
             // orders table is staff-only now; the webhook goes through a narrow
             // SECURITY DEFINER RPC that can only touch delivery_status.
-            await fetch(`${supabaseUrl}/rest/v1/rpc/webhook_update_delivery_status`, {
-                method: 'POST',
-                headers: {
-                    'apikey': supabaseKey,
-                    'Authorization': `Bearer ${supabaseKey}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    p_lalamove_order_id: orderId,
-                    p_status: mappedStatus
-                })
-            });
+            // It returns the affected order so we can LINE-notify the customer.
+            let updatedRows: any[] = [];
+            try {
+                const wr = await fetch(`${supabaseUrl}/rest/v1/rpc/webhook_update_delivery_status`, {
+                    method: 'POST',
+                    headers: {
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        p_lalamove_order_id: orderId,
+                        p_status: mappedStatus
+                    })
+                });
+                if (wr.ok) updatedRows = await wr.json();
+            } catch (e) { console.warn('webhook rpc error', e); }
+
+            try {
+                if (Array.isArray(updatedRows) && updatedRows.length > 0) {
+                    const row = updatedRows[0];
+                    const sid = String(row.order_id || '').slice(-4);
+                    if (status === 'PICKED_UP' || status === 'ON_GOING') {
+                        await lineNotifyByPhone(row.customer_phone, `🛵 ไรเดอร์รับออเดอร์ #${sid} แล้ว กำลังนำไปส่งครับ!`);
+                    } else if (status === 'COMPLETED') {
+                        await lineNotifyByPhone(row.customer_phone, `📦 ออเดอร์ #${sid} ส่งถึงเรียบร้อยครับ ขอบคุณที่อุดหนุน Pizza Damac 🍕`);
+                    }
+                }
+            } catch (e) { console.warn('LINE delivery notify error', e); }
         }
       }
       
