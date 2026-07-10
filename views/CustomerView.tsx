@@ -1401,7 +1401,7 @@ export const CustomerView: React.FC = () => {
                                 </div>
                                 <h3 className="font-bold text-sm text-gray-800 truncate">{localized.name}</h3>
                                 <div className="flex justify-between items-center mt-1">
-                                    <span className="text-brand-600 font-bold text-xs">฿{item.basePrice}</span>
+                                    <span className="text-brand-600 font-bold text-xs">{(item.basePrice || 0) > 0 ? `฿${item.basePrice}` : (language === 'th' ? 'เลือกหน้า ดูราคา' : 'Price by choice')}</span>
                                 </div>
                             </div>
                         );
@@ -1536,7 +1536,7 @@ export const CustomerView: React.FC = () => {
                                     <h3 className="font-bold text-gray-900 text-sm md:text-lg leading-tight mb-1 line-clamp-2">{localized.name}</h3>
                                     <p className="text-gray-500 text-xs md:text-sm line-clamp-2 mb-2 md:mb-3 h-8 md:h-10">{localized.description}</p>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-base md:text-lg font-bold text-brand-600">฿{item.basePrice}</span>
+                                        <span className="text-base md:text-lg font-bold text-brand-600">{(item.basePrice || 0) > 0 ? `฿${item.basePrice}` : (language === 'th' ? 'เลือกหน้า ดูราคา' : 'Choose to see price')}</span>
                                         <button 
                                             onClick={(e) => handleDirectAddToCart(e, item)}
                                             className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center hover:bg-brand-600 hover:text-white transition cursor-pointer"
@@ -1993,7 +1993,7 @@ export const CustomerView: React.FC = () => {
                                                  <img src={pizza.image} className="w-12 h-12 rounded-lg object-cover"/>
                                                  <div>
                                                     <div className="font-bold text-sm text-gray-800 flex items-center gap-1.5">{(() => { const subB = language === 'th' ? (pizza.badgeTh || pizza.badge) : (pizza.badge || pizza.badgeTh); return subB ? <span className="bg-gradient-to-r from-red-600 to-amber-500 text-white text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm shrink-0 animate-pulse">{subB}</span> : null; })()}{getLocalizedItem(pizza).name}</div>
-                                                    <div className="text-xs text-gray-400 font-bold mt-0.5">฿{pizza.basePrice}</div>
+                                                    <div className="text-xs text-gray-400 font-bold mt-0.5">{(pizza.basePrice || 0) > 0 ? `฿${pizza.basePrice}` : (language === 'th' ? 'เลือกหน้า ดูราคา' : 'Price by choice')}</div>
                                                     {pizza.basePrice > 380 && (
                                                         <div className="mt-1">
                                                             <span className="bg-orange-50 text-orange-700 text-[10px] font-black px-2 py-0.5 rounded-lg border border-orange-200">
