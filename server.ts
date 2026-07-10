@@ -177,7 +177,11 @@ async function startServer() {
           ? `✅ ออเดอร์ #${shortId} พร้อมแล้วครับ! มารับได้เลยที่ร้าน Pizza Damac 🍕`
           : `✅ ออเดอร์ #${shortId} ของคุณพร้อมแล้วครับ 🍕`;
       } else if (event === 'cooking') {
-        text = `👨‍🍳 ร้านกำลังปรุงออเดอร์ #${shortId} ของคุณครับ`;
+        // Explicitly confirm BOTH the order and the payment (Oat's request):
+        // QR/transfer orders = shop verified the money; cash = pay on receive.
+        text = order.payment_method === 'qr_transfer'
+          ? `✅ ร้านได้รับออเดอร์ #${shortId} และยืนยันการชำระเงินของคุณเรียบร้อยแล้วครับ\n👨‍🍳 กำลังเตรียมอาหารให้เลยครับ`
+          : `✅ ร้านได้รับออเดอร์ #${shortId} ของคุณเรียบร้อยแล้วครับ\n👨‍🍳 กำลังเตรียมอาหารให้เลยครับ (ชำระเงินสดตอนรับอาหาร)`;
       } else if (event === 'completed') {
         text = `🙏 ขอบคุณที่อุดหนุน Pizza Damac ครับ! สะสมแต้มจากออเดอร์ #${shortId} ให้เรียบร้อยแล้ว 🍕`;
       } else {
@@ -480,8 +484,11 @@ async function startServer() {
                 if (Array.isArray(updatedRows) && updatedRows.length > 0) {
                     const row = updatedRows[0];
                     const sid = String(row.order_id || '').slice(-4);
+                    // Include Lalamove's live-tracking share link so the customer
+                    // can watch the rider on the map in real time.
+                    const trackLine = row.lalamove_share_link ? `\n📍 ดูตำแหน่งไรเดอร์แบบสด: ${row.lalamove_share_link}` : '';
                     if (status === 'PICKED_UP' || status === 'ON_GOING') {
-                        await lineNotifyByPhone(row.customer_phone, `🛵 ไรเดอร์รับออเดอร์ #${sid} แล้ว กำลังนำไปส่งครับ!`);
+                        await lineNotifyByPhone(row.customer_phone, `🛵 ไรเดอร์รับออเดอร์ #${sid} แล้ว กำลังนำไปส่งครับ!${trackLine}`);
                     } else if (status === 'COMPLETED') {
                         await lineNotifyByPhone(row.customer_phone, `📦 ออเดอร์ #${sid} ส่งถึงเรียบร้อยครับ ขอบคุณที่อุดหนุน Pizza Damac 🍕`);
                     }
