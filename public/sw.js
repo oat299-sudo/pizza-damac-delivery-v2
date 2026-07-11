@@ -1,7 +1,7 @@
 // Pizza Damac service worker - intentionally minimal & safe.
 // Caches ONLY small static images; the app itself always loads fresh from the
 // network so deploys are never stuck on old cached versions.
-const STATIC_CACHE = 'damac-static-v1';
+const STATIC_CACHE = 'damac-static-v2';
 const STATIC_ASSETS = ['/favicon.png', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (e) => {
