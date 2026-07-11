@@ -346,9 +346,20 @@ export const CustomerView: React.FC = () => {
           return Math.min(deliveryFee || 0, appliedCoupon.discountValue || 0);
       } else if (appliedCoupon.discountType === 'percentage_total') {
           return Math.round(cartTotal * ((appliedCoupon.discountValue || 0) / 100));
+      } else if (appliedCoupon.discountType === 'fixed_per_pizza') {
+          // PICKUP30: pre-order + self-pickup only, ฿X off EVERY pizza tray
+          if ((appliedCoupon as any).requiresPreorder && asapOrder) return 0;
+          let trayCount = 0;
+          cart.forEach(item => {
+              const itemDef = menu.find(m => m.id === item.pizzaId);
+              if (itemDef?.category === 'pizza' || itemDef?.category === 'promotion') {
+                  trayCount += item.quantity;
+              }
+          });
+          return Math.min(cartTotal, (appliedCoupon.discountValue || 0) * trayCount);
       }
       return 0;
-  }, [appliedCoupon, cartTotal, orderType, cart, menu, deliveryFee]);
+  }, [appliedCoupon, cartTotal, orderType, cart, menu, deliveryFee, asapOrder]);
   
   const [addressSaveType, setAddressSaveType] = useState<'home' | 'work' | 'none'>('none');
   const [savedProfiles, setSavedProfiles] = useState<{ [key: string]: { address: string, phone: string, mapSearch: string, lat: number, lng: number, hasPin: boolean } }>(() => {
@@ -1006,6 +1017,16 @@ export const CustomerView: React.FC = () => {
          }
      }
 
+     // Machine-readable scheduled time for pre-orders (used for advance Lalamove booking)
+     let scheduledAtIso: string | undefined = undefined;
+     if (!asapOrder && pickupTime && /^\d{1,2}:\d{2}$/.test(pickupTime)) {
+         const sd = new Date();
+         sd.setDate(sd.getDate() + orderDayOffset);
+         const [shh, smm] = pickupTime.split(':').map(Number);
+         sd.setHours(shh, smm, 0, 0);
+         scheduledAtIso = sd.toISOString();
+     }
+
      const success = await placeOrder(orderType, {
         note: orderNote,
         delivery: orderType === 'delivery' ? {
@@ -1019,6 +1040,7 @@ export const CustomerView: React.FC = () => {
         } : undefined,
         paymentMethod: paymentMethod,
         pickupTime: asapOrder ? 'ASAP' : `Pre-order: ${scheduledDateLabelFull(orderDayOffset)} ${pickupTime || 'asap'}`,
+        scheduledAt: scheduledAtIso,
         tableNumber: tableSession || undefined, 
         source: 'store',
         partnerId: partnerSession || undefined, 
@@ -2990,6 +3012,11 @@ export const CustomerView: React.FC = () => {
                                     <div className="flex justify-between items-center mb-1.5 text-sm font-bold text-green-600">
                                         <span>Coupon ({appliedCoupon?.code})</span>
                                         <span>-฿{calculatedCouponDiscount}</span>
+                                    </div>
+                                )}
+                                {appliedCoupon && (appliedCoupon as any).requiresPreorder && asapOrder && (
+                                    <div className="mb-1.5 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                                        ⏰ {language === 'th' ? `คูปอง ${appliedCoupon.code} ใช้ได้เฉพาะ "สั่งอาหารล่วงหน้า" — เลือกวัน/เวลานัดรับด้านบนก่อน ส่วนลดจึงจะลง` : `Coupon ${appliedCoupon.code} requires a scheduled pre-order — pick a date/time above to activate it.`}
                                     </div>
                                 )}
                                 <div className="flex justify-between items-center mb-4 text-xl font-bold text-gray-900 border-t border-gray-100 pt-2">

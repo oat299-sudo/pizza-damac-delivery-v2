@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useStore, grantBirthdayCouponIfEligible } from '../context/StoreContext';
+import { useStore, grantBirthdayCouponIfEligible, grantMonthlyPickupCoupons } from '../context/StoreContext';
 import { supabase } from '../services/supabaseClient';
 import { Pizza, Topping, CartItem, ProductCategory, OrderSource, ExpenseCategory, PaymentMethod, Order, OrderStatus, SubItem, parseGPSCoordinates, parseDeliveryPhone, parseAnyMapLink } from '../types';
 import { CATEGORIES, EXPENSE_CATEGORIES, PRESET_EXPENSES } from '../constants';
@@ -769,6 +769,14 @@ export const POSView: React.FC = () => {
             return Math.min(cartTotal, c.discountValue || 0);
         } else if (c.discountType === 'percentage_total') {
             return Math.round(cartTotal * ((c.discountValue || 0) / 100));
+        } else if (c.discountType === 'fixed_per_pizza') {
+            // PICKUP30: ฿X off every pizza tray (pre-order pickup perk — staff verifies the pre-order)
+            let trayCount = 0;
+            cart.forEach(item => {
+                const itemDef = menu.find(m => m.id === item.pizzaId);
+                if (itemDef?.category === 'pizza' || itemDef?.category === 'promotion') trayCount += item.quantity;
+            });
+            return Math.min(cartTotal, (c.discountValue || 0) * trayCount);
         }
         return 0; // free_delivery is not applicable for POS orders
     }, [posMemberCoupon, cartTotal, posOrderType, cart, menu]);
@@ -783,11 +791,12 @@ export const POSView: React.FC = () => {
             if (data && (data as any).phone) {
                 const d: any = data;
                 let coupons = Array.isArray(d.coupons) ? d.coupons : [];
-                // Auto-grant the birthday gift if this is the customer's birth month
+                // Auto-grant the birthday gift + this month's PICKUP30 coupons if missing
                 const bdayGift = grantBirthdayCouponIfEligible(d.birthday, coupons);
-                if (bdayGift) {
-                    coupons = [...coupons, bdayGift];
-                    try { await supabase.rpc('loyalty_update', { p_phone: ph, p: { coupons } }); } catch (e) { console.warn('birthday grant save failed', e); }
+                const pickupGifts = grantMonthlyPickupCoupons(coupons);
+                if (bdayGift || pickupGifts.length > 0) {
+                    coupons = [...coupons, ...(bdayGift ? [bdayGift] : []), ...pickupGifts];
+                    try { await supabase.rpc('loyalty_update', { p_phone: ph, p: { coupons } }); } catch (e) { console.warn('coupon grant save failed', e); }
                 }
                 setMemberProfile({ phone: d.phone, name: d.name || '', points: d.loyalty_points || 0, coupons });
             } else {
