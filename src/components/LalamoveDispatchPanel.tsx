@@ -117,13 +117,16 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
 
     setIsBooking(true);
     try {
+      // Fall back to the customer's phone embedded in the address text if the field is empty
+      const customerPhone = order.customerPhone || parseDeliveryPhone(order.deliveryAddress || '') || '';
       const realOrder = await createRealLalamoveOrder(
         selectedQuote.quotationId,
         order.customerName || 'Customer',
-        order.customerPhone || '',
-        selectedQuote.stopIds || []
+        customerPhone,
+        selectedQuote.stopIds || [],
+        storeSettings?.contactPhone
       );
-      if (realOrder) {
+      if (realOrder && 'orderId' in realOrder) {
         await updateOrderFields(order.id, {
           delivery_status: 'assigning', // Lalamove standard status
           lalamove_order_id: realOrder.orderId,
@@ -135,9 +138,10 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
           deliveryFee: selectedQuote.totalFare
         });
       } else {
+        const reason = (realOrder && 'error' in realOrder) ? realOrder.error : '';
         alert(language === 'th'
-          ? 'เรียกไรเดอร์ไม่สำเร็จ (Lalamove ปฏิเสธคำขอ) กรุณาลองใหม่อีกครั้ง'
-          : 'Lalamove booking failed. Please try again.');
+          ? `เรียกไรเดอร์ไม่สำเร็จ — Lalamove แจ้งว่า:\n\n${reason || 'ไม่ทราบสาเหตุ'}\n\nแก้ตามที่แจ้งแล้วลองใหม่อีกครั้งครับ`
+          : `Lalamove booking failed:\n\n${reason || 'Unknown error'}`);
       }
     } catch (e) {
       console.error("Lalamove dispatch failed:", e);
