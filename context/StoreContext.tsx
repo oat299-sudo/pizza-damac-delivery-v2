@@ -264,6 +264,40 @@ export const grantBirthdayCouponIfEligible = (birthday: string | undefined | nul
   };
 };
 
+// Monthly perk: 5x "PICKUP30" coupons — pre-order + self-pickup = ฿30 off EVERY pizza tray.
+// Granted automatically each month (like the birthday coupon). Returns only the
+// coupons that are still missing for the current month (idempotent).
+export const grantMonthlyPickupCoupons = (coupons: any[]): any[] => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const mm = String(month).padStart(2, '0');
+  const lastDay = new Date(year, month, 0).getDate();
+  const newOnes: any[] = [];
+  for (let i = 1; i <= 5; i++) {
+    const id = `coupon_pickup30_${year}_${mm}_${i}`;
+    if ((coupons || []).some((c: any) => c && c.id === id)) continue;
+    newOnes.push({
+      id,
+      code: 'PICKUP30',
+      title: 'Pre-order & Pickup: ฿30 OFF every pizza tray',
+      titleTh: 'จองล่วงหน้า มารับเอง ลด 30.- ทุกถาด',
+      description: `Schedule your order ahead and pick it up at the shop — ฿30 off EVERY pizza tray. (Coupon ${i}/5 this month)`,
+      descriptionTh: `สั่งจองล่วงหน้า + มารับเองที่ร้าน รับส่วนลด 30 บาททุกถาดพิซซ่า (ใบที่ ${i}/5 ของเดือนนี้)`,
+      discountType: 'fixed_per_pizza',
+      discountValue: 30,
+      minOrderAmount: 0,
+      isUsed: false,
+      expiryDate: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
+      applicableOrderTypes: ['online'],
+      requiresPreorder: true,
+      badge: 'Pre-order Pickup -30/tray',
+      badgeTh: 'จองล่วงหน้ารับเอง -30/ถาด',
+    });
+  }
+  return newOnes;
+};
+
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // --- Language State ---
   const [language, setLanguage] = useState<Language>(() => {
@@ -1920,6 +1954,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   deliveryFee: d.type === 'delivery' && d.delivery_fee === null ? 'pending' : d.delivery_fee,
                   paymentMethod: d.payment_method,
                   pickupTime: d.pickup_time,
+                  scheduledAt: d.scheduled_at,
                   tableNumber: d.table_number,
                   rating: d.rating,
                   comment: d.comment,
@@ -2031,9 +2066,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   coupons: Array.isArray(data.coupons) ? data.coupons : (backupCoupons.length > 0 ? backupCoupons : (localCoupons.length > 0 ? localCoupons : generateInitialCoupons()))
               };
               const bdayGiftFetch = grantBirthdayCouponIfEligible(updatedProfile.birthday, updatedProfile.coupons || []);
-              if (bdayGiftFetch) {
-                  updatedProfile.coupons = [...(updatedProfile.coupons || []), bdayGiftFetch];
-                  await setCustomer(updatedProfile); // persist the birthday gift
+              const pickupGiftsFetch = grantMonthlyPickupCoupons(updatedProfile.coupons || []);
+              if (bdayGiftFetch || pickupGiftsFetch.length > 0) {
+                  updatedProfile.coupons = [...(updatedProfile.coupons || []), ...(bdayGiftFetch ? [bdayGiftFetch] : []), ...pickupGiftsFetch];
+                  await setCustomer(updatedProfile); // persist the granted coupons
                   return;
               }
               setCustState(updatedProfile);
@@ -2404,6 +2440,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       const bdayGiftReg = grantBirthdayCouponIfEligible(finalProfile.birthday, finalProfile.coupons || []);
       if (bdayGiftReg) finalProfile.coupons = [...(finalProfile.coupons || []), bdayGiftReg];
+      const pickupGiftsReg = grantMonthlyPickupCoupons(finalProfile.coupons || []);
+      if (pickupGiftsReg.length > 0) finalProfile.coupons = [...(finalProfile.coupons || []), ...pickupGiftsReg];
       await setCustomer(finalProfile);
       return action;
   };
@@ -2452,6 +2490,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               };
               const bdayGiftLogin = grantBirthdayCouponIfEligible(profile.birthday, profile.coupons || []);
               if (bdayGiftLogin) profile.coupons = [...(profile.coupons || []), bdayGiftLogin];
+              const pickupGiftsLogin = grantMonthlyPickupCoupons(profile.coupons || []);
+              if (pickupGiftsLogin.length > 0) profile.coupons = [...(profile.coupons || []), ...pickupGiftsLogin];
               await setCustomer(profile);
               return true;
           }
@@ -2623,6 +2663,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       delivery?: { address: string; zoneName: string; fee: number | 'pending'; lat?: number; lng?: number; quotationId?: string; vehicleType?: 'motorcycle' | 'car' | 'pickup'; };
       paymentMethod?: PaymentMethod;
       pickupTime?: string;
+      scheduledAt?: string; // ISO timestamp for pre-orders (machine-readable twin of pickupTime)
       tableNumber?: string;
       source?: OrderSource;
       status?: OrderStatus;
@@ -2844,6 +2885,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           delivery_status: type === 'delivery' ? 'pending' : undefined,
           paymentMethod: details?.paymentMethod,
           pickupTime: details?.pickupTime,
+          scheduledAt: details?.scheduledAt,
           tableNumber: details?.tableNumber,
           deliveryPlatformRef: details?.deliveryPlatformRef,
           partnerId: details?.partnerId,
@@ -2886,6 +2928,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                  delivery_fee: newOrder.deliveryFee === 'pending' ? null : newOrder.deliveryFee,
                  payment_method: newOrder.paymentMethod,
                  pickup_time: newOrder.pickupTime,
+                 scheduled_at: newOrder.scheduledAt,
                  table_number: newOrder.tableNumber
              };
              const {error} = await supabase.from('orders').insert([payload]); if (error) { console.error('Supabase order insert error:', error); throw error; }
