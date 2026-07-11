@@ -20,11 +20,12 @@ const formatOrderDateTime = (dateStr?: string | null, dateStyle: 'short' | 'medi
 };
 
 export const KitchenView: React.FC = () => {
-  const { 
-    orders, updateOrderStatus, adminLogout, t, language, toggleLanguage, 
-    paperSize, setPaperSize, receiptFontSize, receiptPadding, 
+  const {
+    orders, updateOrderStatus, adminLogout, t, language, toggleLanguage,
+    paperSize, setPaperSize, receiptFontSize, receiptPadding,
     autoPrintNewOrders, setAutoPrintNewOrders, printerType, setPrinterType, btCharacteristic, triggerKitchenPrint,
-    btDevice, btStatus, connectBluetoothPrinter, disconnectBluetoothPrinter, resetBluetoothConnection, writeBtInChunks
+    btDevice, btStatus, connectBluetoothPrinter, disconnectBluetoothPrinter, resetBluetoothConnection, writeBtInChunks,
+    newVersionAvailable
   } = useStore();
   const [filterType, setFilterType] = useState<'active' | 'today' | 'yesterday' | 'cancelled'>('active');
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
@@ -358,7 +359,15 @@ export const KitchenView: React.FC = () => {
   return (
     <div className="p-6 bg-gray-800 min-h-screen pb-24 text-gray-100 animate-fade-in print:bg-white print:p-0 print:m-0 print:min-h-0 print:pb-0">
       <div className="print:hidden">
-      
+
+      {/* NEW-DEPLOY PROMPT: kitchen tablets stay open for days — one tap refreshes to the new build */}
+      {newVersionAvailable && (
+        <button onClick={() => window.location.reload()}
+          className="fixed bottom-5 right-4 z-[999] bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm font-black px-4 py-3 rounded-2xl shadow-2xl animate-bounce flex items-center gap-2 active:scale-95">
+          🔄 {language === 'th' ? 'มีเวอร์ชันใหม่ — แตะเพื่ออัปเดต' : 'New version — tap to update'}
+        </button>
+      )}
+
       {/* Interactive Sound Activation / Browser Autoplay restriction banner */}
       {soundEnabled && !audioUnlocked && (
         <div 

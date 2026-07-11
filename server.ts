@@ -60,6 +60,14 @@ async function startServer() {
     });
   });
 
+  // Build/deploy version — Cloud Run sets K_REVISION on every new deploy.
+  // Always-open POS/Kitchen tablets poll this to detect a new deploy and show a
+  // "refresh to update" prompt (fixes: stale tab kept running old code for days).
+  app.get("/api/version", (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ revision: process.env.K_REVISION || 'dev' });
+  });
+
   // ---------------- LINE Official Account integration ----------------
   const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
   const LINE_SECRET = process.env.LINE_CHANNEL_SECRET || '';

@@ -8,6 +8,9 @@ import { generatePromptPayPayload } from '../utils/promptpay';
 import { calculateDistanceKm } from '../utils/geo';
 import LalamoveDispatchPanel from '../src/components/LalamoveDispatchPanel';
 import { LalamoveSettingsCard } from '../src/components/LalamoveSettingsCard';
+import PromoBoard from '../src/components/PromoBoard';
+import StockManager from '../src/components/StockManager';
+import { Package } from 'lucide-react';
 import { Plus, Minus, Trash2, ShoppingBag, DollarSign, Settings, User, X, Edit2, Power, LogOut, Upload, Image as ImageIcon, Bike, Store, List, PieChart, Calculator, Globe, ToggleLeft, ToggleRight, Camera, ChevronUp, ChevronDown, ChevronLeft, AlertCircle, Calendar, Link, Star, Layers, Database, MousePointerClick, MessageCircle, MapPin, Facebook, Phone, CheckCircle, Video, PlayCircle, Newspaper, Save, Download, QrCode, Printer, CheckCircle2, ChefHat, Banknote, CreditCard, Lock, Unlock, ArrowRight, Utensils, RefreshCw, Send, Check, ChevronRight, ArrowLeft, Filter, FileSpreadsheet, Maximize2, Sparkles, Receipt, Eye, Volume2, VolumeX, Clock, Search, Tag, Ticket, Gift, Truck } from 'lucide-react';
 
 const convertGoogleDriveUrl = (url: string): string => {
@@ -85,7 +88,8 @@ export const POSView: React.FC = () => {
         connectBluetoothPrinter, disconnectBluetoothPrinter, resetBluetoothConnection,
         triggerReceiptPrint, generateEscPosData, writeBtInChunks,
         thaiCodePage, setThaiCodePage,
-        promoCodes, addPromoCode, updatePromoCode, deletePromoCode
+        promoCodes, addPromoCode, updatePromoCode, deletePromoCode,
+        lowStockItems, newVersionAvailable
     } = useStore();
     
     // Unified Tab State
@@ -2436,6 +2440,7 @@ export const POSView: React.FC = () => {
                     <button onClick={() => { playClickSound(); setActiveTab('qr_gen'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'qr_gen' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'สร้างคิวอาร์' : 'QR Generator'}><QrCode size={28} /></button>
                     <button onClick={() => { playClickSound(); setActiveTab('partners'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'partners' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'พาร์ทเนอร์แนะนำ' : 'Partner Referral Shares'}><Store size={28} /></button>
                     <button onClick={() => { playClickSound(); setActiveTab('promos'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'promos' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'โปรโมชั่น & ส่วนลด' : 'Promotions & Discounts'}><Tag size={28} /></button>
+                    <button onClick={() => { playClickSound(); setActiveTab('stock'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center relative ${activeTab === 'stock' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'สต็อกวัตถุดิบ & Supplier' : 'Stock & Suppliers'}><Package size={28} />{lowStockItems.length > 0 && <span className="absolute top-2 right-2 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center animate-pulse">{lowStockItems.length}</span>}</button>
                      <button onClick={() => { playClickSound(); setActiveTab('manage'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'manage' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'ตั้งค่าร้านค้า' : 'Store Settings'}><Settings size={28} /></button>
                 </div>
                 <div className="flex flex-col items-center gap-4 w-full">
@@ -2457,12 +2462,20 @@ export const POSView: React.FC = () => {
                 <button onClick={() => { playClickSound(); setActiveTab('order'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 ${activeTab === 'order' && !showMobileCart ? 'text-brand-500' : 'text-gray-400'}`}><ShoppingBag size={20}/><span className="text-[10px] font-bold">{language === 'th' ? 'สั่งอาหาร' : 'Order'}</span></button>
                 <button onClick={() => { playClickSound(); setActiveTab('tables'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 relative ${activeTab === 'tables' ? 'text-brand-500' : 'text-gray-400'}`}><Layers size={20}/>{activeTables.length > 0 && <span className="absolute top-0 right-3 w-2 h-2 bg-red-500 rounded-full animate-ping"></span>}<span className="text-[10px] font-bold">{language === 'th' ? 'กำลังทำ' : 'Active'}</span></button>
                 <div className="relative -top-5"><button onClick={() => { playClickSound(); setShowMobileCart(!showMobileCart); }} className="bg-brand-600 text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center border-4 border-gray-900">{showMobileCart ? <X size={24}/> : (<><ShoppingBag size={24}/>{cart.length > 0 && <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{cart.reduce((s,i)=>s+i.quantity,0)}</span>}</>)}</button></div>
-                <button onClick={() => { playClickSound(); setActiveTab('sales'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 ${activeTab === 'sales' ? 'text-brand-500' : 'text-gray-400'}`}><PieChart size={20}/><span className="text-[10px] font-bold">{language === 'th' ? 'รายงานขาย' : 'Reports'}</span></button>
+                <button onClick={() => { playClickSound(); setActiveTab('stock'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 relative ${activeTab === 'stock' ? 'text-brand-500' : 'text-gray-400'}`}><Package size={20}/>{lowStockItems.length > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-0.5 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center">{lowStockItems.length}</span>}<span className="text-[10px] font-bold">{language === 'th' ? 'สต็อก' : 'Stock'}</span></button>
                 <button onClick={() => { playClickSound(); setActiveTab('manage'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 ${activeTab === 'manage' ? 'text-brand-500' : 'text-gray-400'}`}><Settings size={20}/><span className="text-[10px] font-bold">{language === 'th' ? 'ตั้งค่าร้าน' : 'Settings'}</span></button>
             </div>
 
             {/* --- MAIN CONTENT --- */}
             <main className="flex-1 flex overflow-hidden relative print:hidden">
+                {/* NEW-DEPLOY PROMPT: always-open POS tabs keep running old code — one tap refreshes */}
+                {newVersionAvailable && (
+                    <button onClick={() => window.location.reload()}
+                        className="fixed bottom-20 lg:bottom-5 right-4 z-[999] bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm font-black px-4 py-3 rounded-2xl shadow-2xl animate-bounce flex items-center gap-2 active:scale-95">
+                        <RefreshCw size={16} className="animate-spin" style={{ animationDuration: '3s' }} />
+                        {language === 'th' ? 'มีเวอร์ชันใหม่ — แตะเพื่ออัปเดต' : 'New version — tap to update'}
+                    </button>
+                )}
                 {activeTab === 'order' && (
                     <>
                         <div className={`flex-1 flex flex-col h-full bg-gray-100 relative ${showMobileCart ? 'hidden lg:flex' : 'flex'}`}>
@@ -4416,6 +4429,9 @@ export const POSView: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* ===== PROMO BOARD: โปรที่รันอยู่ทั้งหมด + ผู้จัดการแก้แคมเปญเองได้ ===== */}
+                            <PromoBoard />
+
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                 {/* Create New Promo Code Form */}
                                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-fit lg:col-span-1">
@@ -4636,6 +4652,9 @@ export const POSView: React.FC = () => {
                         </div>
                     </div>
                 )}
+
+                {/* ===== STOCK & SUPPLIER TAB ===== */}
+                {activeTab === 'stock' && <StockManager />}
 
                 {activeTab === 'manage' && (
                     <div className="flex-1 bg-gray-100 p-6 overflow-y-auto pb-24 lg:pb-6">

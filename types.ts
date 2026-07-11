@@ -193,6 +193,87 @@ export interface Partner {
   note?: string;
 }
 
+// --- Promotion Campaigns (DB-configurable coupon rules; editable from POS promo board) ---
+export type PromoCampaignKind = 'welcome' | 'birthday' | 'pickup_monthly';
+
+export interface CampaignCouponConfig {
+  id: string;
+  enabled?: boolean;
+  code: string;
+  title: string;
+  titleTh: string;
+  description: string;
+  descriptionTh: string;
+  discountType: CouponDiscountType;
+  discountValue: number;
+  minOrderAmount?: number;
+  applicableOrderTypes?: OrderType[];
+  requiresPreorder?: boolean;
+  badge?: string;
+  badgeTh?: string;
+}
+
+export interface PromoCampaign {
+  id: string;
+  kind: PromoCampaignKind;
+  enabled: boolean;
+  sortOrder: number;
+  // birthday/pickup_monthly: CampaignCouponConfig fields (+ perMonth for pickup)
+  // welcome: { coupons: CampaignCouponConfig[] }
+  config: any;
+  staffNoteTh?: string;
+  updatedAt?: string;
+}
+
+// --- Supplier + Stock system (manual counts, v1) ---
+export interface Supplier {
+  id: string;
+  name: string;
+  phone?: string;
+  lineId?: string;
+  contactPerson?: string;
+  categories?: string; // what they sell (free text)
+  note?: string;
+  active?: boolean;
+  createdAt?: string;
+}
+
+export type StockCategory = 'dough' | 'cheese' | 'sauce' | 'meat' | 'vegetable' | 'packaging' | 'drink' | 'other';
+
+export interface StockItem {
+  id: string;
+  name: string;
+  unit: string; // กก., ถุง, กล่อง, ใบ, ขวด ...
+  category: StockCategory | string;
+  minLevel: number; // alert threshold
+  currentQty: number;
+  costPerUnit?: number; // latest known purchase cost
+  supplierId?: string;
+  sortOrder?: number;
+  active?: boolean;
+  updatedAt?: string;
+}
+
+export type StockMovementType = 'count' | 'receive' | 'adjust' | 'waste';
+
+export interface StockMovement {
+  id: string;
+  itemId: string;
+  type: StockMovementType;
+  session?: 'morning' | 'evening' | string; // for counts
+  qty: number; // count: counted value / receive: +qty / waste,adjust: delta
+  qtyBefore?: number;
+  qtyAfter?: number;
+  unitCost?: number;
+  totalCost?: number;
+  supplierId?: string;
+  supplierName?: string;
+  expenseId?: string; // linked expense row when a receive was logged into expenses
+  note?: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
 // Accounting
 export type ExpenseCategory = 'COGS' | 'Labor' | 'Rent' | 'Utilities' | 'Marketing' | 'Maintenance' | 'Other';
 

@@ -1,10 +1,11 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
-import { 
-  Pizza, Topping, CartItem, Order, OrderType, OrderSource, OrderStatus, 
-  PaymentMethod, CustomerProfile, Expense, StoreSettings, NewsItem, 
+import {
+  Pizza, Topping, CartItem, Order, OrderType, OrderSource, OrderStatus,
+  PaymentMethod, CustomerProfile, Expense, StoreSettings, NewsItem,
   SavedFavorite, Language, AppView, ProductCategory, SubItem, ExpenseCategory, Partner,
-  PromoCode, Coupon, CouponDiscountType
+  PromoCode, Coupon, CouponDiscountType,
+  PromoCampaign, Supplier, StockItem, StockMovement
 } from '../types';
 import { 
   INITIAL_MENU, INITIAL_TOPPINGS, DEFAULT_STORE_SETTINGS, 
@@ -159,12 +160,54 @@ interface StoreContextType {
   addPromoCode: (pc: PromoCode) => Promise<void>;
   updatePromoCode: (pc: PromoCode) => Promise<void>;
   deletePromoCode: (id: string) => Promise<void>;
+
+  // Promotion campaigns (DB-configurable coupon rules — POS Promo Board)
+  promoCampaigns: PromoCampaign[];
+  updatePromoCampaign: (c: PromoCampaign) => Promise<boolean>;
+
+  // Supplier + Stock system
+  suppliers: Supplier[];
+  addSupplier: (s: Supplier) => Promise<void>;
+  updateSupplier: (s: Supplier) => Promise<void>;
+  deleteSupplier: (id: string) => Promise<void>;
+  stockItems: StockItem[];
+  stockMovements: StockMovement[];
+  lowStockItems: StockItem[];
+  fetchStockData: () => Promise<void>;
+  addStockItem: (item: StockItem) => Promise<void>;
+  updateStockItem: (item: StockItem) => Promise<void>;
+  deleteStockItem: (id: string, hard?: boolean) => Promise<void>;
+  recordStockCount: (session: 'morning' | 'evening', entries: { itemId: string; qty: number }[]) => Promise<number>;
+  receiveStock: (
+    entries: { itemId: string; qty: number; unitCost?: number }[],
+    opts: { supplierId?: string; billNumber?: string; note?: string; createExpense: boolean }
+  ) => Promise<boolean>;
+  adjustStock: (itemId: string, newQty: number, note?: string, type?: 'adjust' | 'waste') => Promise<void>;
+
+  // New-deploy detection for always-open POS/Kitchen tabs
+  newVersionAvailable: boolean;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-export const generateInitialCoupons = (): Coupon[] => {
-  return [
+// ---------------------------------------------------------------------------
+// PROMO CAMPAIGNS — coupon rules now live in DB table `promo_campaigns`
+// (editable from the POS Promo Board). The module-level cache below is filled
+// by fetchPromoCampaigns(); the grant functions read it and fall back to the
+// original hardcoded values until the DB has loaded (identical behavior).
+// NOTE: edits only affect coupons granted FROM NOW ON — coupons customers
+// already hold are snapshots and keep their old values.
+// ---------------------------------------------------------------------------
+let CAMPAIGN_CACHE: Record<string, { enabled: boolean; config: any }> | null = null;
+export const setCampaignCache = (rows: { id: string; enabled: boolean; config: any }[]) => {
+  const next: Record<string, { enabled: boolean; config: any }> = {};
+  rows.forEach(r => { next[r.id] = { enabled: r.enabled !== false, config: r.config || {} }; });
+  CAMPAIGN_CACHE = next;
+};
+const campaignOf = (id: string): { enabled: boolean; config: any } | null =>
+  (CAMPAIGN_CACHE && CAMPAIGN_CACHE[id]) ? CAMPAIGN_CACHE[id] : null;
+
+const FALLBACK_WELCOME_COUPONS: any[] = [
     {
       id: 'coupon_new_member',
       code: 'NEWMEMBER10',
@@ -224,12 +267,40 @@ export const generateInitialCoupons = (): Coupon[] => {
       badgeTh: 'สมาชิก VIP',
     },
   ];
+
+export const generateInitialCoupons = (): Coupon[] => {
+  const camp = campaignOf('welcome');
+  if (camp && camp.enabled === false) return []; // welcome set switched off from POS board
+  const raw = (camp && Array.isArray(camp.config?.coupons) && camp.config.coupons.length > 0)
+    ? camp.config.coupons
+    : FALLBACK_WELCOME_COUPONS;
+  return raw
+    .filter((c: any) => c && c.enabled !== false && c.code)
+    .map((c: any) => ({
+      id: c.id || `coupon_${String(c.code).toLowerCase()}`,
+      code: c.code,
+      title: c.title || c.titleTh || c.code,
+      titleTh: c.titleTh || c.title || c.code,
+      description: c.description || '',
+      descriptionTh: c.descriptionTh || c.description || '',
+      discountType: c.discountType,
+      discountValue: Number(c.discountValue) || 0,
+      minOrderAmount: Number(c.minOrderAmount) || 0,
+      ...(Array.isArray(c.applicableOrderTypes) && c.applicableOrderTypes.length > 0 ? { applicableOrderTypes: c.applicableOrderTypes } : {}),
+      ...(c.requiresPreorder ? { requiresPreorder: true } : {}),
+      isUsed: false,
+      badge: c.badge,
+      badgeTh: c.badgeTh,
+    }));
 };
 
 // Birthday gift: 15% off the whole bill, auto-granted once per year during the
 // customer's birth month (expires at the end of that month). Returns the new
 // coupon if it should be granted right now, otherwise null.
 export const grantBirthdayCouponIfEligible = (birthday: string | undefined | null, coupons: any[]): any | null => {
+  const camp = campaignOf('birthday');
+  if (camp && camp.enabled === false) return null; // campaign switched off from POS board
+  const cfg = (camp && camp.config) || {};
   if (!birthday) return null;
   let month = 0;
   const s = String(birthday).trim();
@@ -249,18 +320,18 @@ export const grantBirthdayCouponIfEligible = (birthday: string | undefined | nul
   const mm = String(month).padStart(2, '0');
   return {
     id,
-    code: 'HBD15',
-    title: 'Birthday Gift: 15% OFF Your Entire Bill',
-    titleTh: 'ของขวัญวันเกิด ลด 15% ทั้งบิล',
-    description: 'Happy Birthday! Enjoy 15% off your entire order - valid during your birthday month only.',
-    descriptionTh: 'สุขสันต์วันเกิด! รับส่วนลด 15% ทั้งออเดอร์ ใช้ได้ภายในเดือนเกิดของคุณเท่านั้น',
-    discountType: 'percentage_total',
-    discountValue: 15,
-    minOrderAmount: 0,
+    code: cfg.code || 'HBD15',
+    title: cfg.title || 'Birthday Gift: 15% OFF Your Entire Bill',
+    titleTh: cfg.titleTh || 'ของขวัญวันเกิด ลด 15% ทั้งบิล',
+    description: cfg.description || 'Happy Birthday! Enjoy 15% off your entire order - valid during your birthday month only.',
+    descriptionTh: cfg.descriptionTh || 'สุขสันต์วันเกิด! รับส่วนลด 15% ทั้งออเดอร์ ใช้ได้ภายในเดือนเกิดของคุณเท่านั้น',
+    discountType: cfg.discountType || 'percentage_total',
+    discountValue: Number(cfg.discountValue) || 15,
+    minOrderAmount: Number(cfg.minOrderAmount) || 0,
     isUsed: false,
     expiryDate: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
-    badge: 'Birthday Gift',
-    badgeTh: 'ของขวัญวันเกิด',
+    badge: cfg.badge || 'Birthday Gift',
+    badgeTh: cfg.badgeTh || 'ของขวัญวันเกิด',
   };
 };
 
@@ -268,31 +339,35 @@ export const grantBirthdayCouponIfEligible = (birthday: string | undefined | nul
 // Granted automatically each month (like the birthday coupon). Returns only the
 // coupons that are still missing for the current month (idempotent).
 export const grantMonthlyPickupCoupons = (coupons: any[]): any[] => {
+  const camp = campaignOf('pickup_monthly');
+  if (camp && camp.enabled === false) return []; // campaign switched off from POS board
+  const cfg = (camp && camp.config) || {};
+  const perMonth = Math.max(0, Math.min(20, Number(cfg.perMonth) || 5));
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   const mm = String(month).padStart(2, '0');
   const lastDay = new Date(year, month, 0).getDate();
   const newOnes: any[] = [];
-  for (let i = 1; i <= 5; i++) {
+  for (let i = 1; i <= perMonth; i++) {
     const id = `coupon_pickup30_${year}_${mm}_${i}`;
     if ((coupons || []).some((c: any) => c && c.id === id)) continue;
     newOnes.push({
       id,
-      code: 'PICKUP30',
-      title: 'Pre-order & Pickup: ฿30 OFF every pizza tray',
-      titleTh: 'จองล่วงหน้า มารับเอง ลด 30.- ทุกถาด',
-      description: `Schedule your order ahead and pick it up at the shop — ฿30 off EVERY pizza tray. (Coupon ${i}/5 this month)`,
-      descriptionTh: `สั่งจองล่วงหน้า + มารับเองที่ร้าน รับส่วนลด 30 บาททุกถาดพิซซ่า (ใบที่ ${i}/5 ของเดือนนี้)`,
-      discountType: 'fixed_per_pizza',
-      discountValue: 30,
-      minOrderAmount: 0,
+      code: cfg.code || 'PICKUP30',
+      title: `${cfg.title || 'Pre-order & Pickup: ฿30 OFF every pizza tray'}`,
+      titleTh: `${cfg.titleTh || 'จองล่วงหน้า มารับเอง ลด 30.- ทุกถาด'}`,
+      description: `${cfg.description || 'Schedule your order ahead and pick it up at the shop — ฿30 off EVERY pizza tray.'} (Coupon ${i}/${perMonth} this month)`,
+      descriptionTh: `${cfg.descriptionTh || 'สั่งจองล่วงหน้า + มารับเองที่ร้าน รับส่วนลด 30 บาททุกถาดพิซซ่า'} (ใบที่ ${i}/${perMonth} ของเดือนนี้)`,
+      discountType: cfg.discountType || 'fixed_per_pizza',
+      discountValue: Number(cfg.discountValue) || 30,
+      minOrderAmount: Number(cfg.minOrderAmount) || 0,
       isUsed: false,
       expiryDate: `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
-      applicableOrderTypes: ['online'],
-      requiresPreorder: true,
-      badge: 'Pre-order Pickup -30/tray',
-      badgeTh: 'จองล่วงหน้ารับเอง -30/ถาด',
+      applicableOrderTypes: Array.isArray(cfg.applicableOrderTypes) && cfg.applicableOrderTypes.length > 0 ? cfg.applicableOrderTypes : ['online'],
+      requiresPreorder: cfg.requiresPreorder !== false,
+      badge: cfg.badge || 'Pre-order Pickup -30/tray',
+      badgeTh: cfg.badgeTh || 'จองล่วงหน้ารับเอง -30/ถาด',
     });
   }
   return newOnes;
@@ -2087,7 +2162,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         fetchOrders();
         fetchSettings();
         fetchPromoCodes();
-        
+        fetchPromoCampaigns();
+
         const subscription = supabase.channel('realtime_updates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload: any) => {
             fetchOrders(); // Reload orders when change happens
@@ -2096,6 +2172,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         .on('postgres_changes', { event: '*', schema: 'public', table: 'toppings' }, fetchToppings) // Subscribe to toppings
         .on('postgres_changes', { event: '*', schema: 'public', table: 'store_settings' }, fetchSettings)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'promo_codes' }, fetchPromoCodes)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'promo_campaigns' }, fetchPromoCampaigns)
         .subscribe();
         
         // Polling fallback every 5 seconds to ensure status updates even if realtime is flaky
@@ -3327,6 +3404,346 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setExpenses(prev => prev.filter(e => e.id !== id));
   };
 
+  // ======================================================================
+  // PROMO CAMPAIGNS (บอร์ดโปรโมชั่น) — config lives in DB, editable from POS
+  // ======================================================================
+  const [promoCampaigns, setPromoCampaigns] = useState<PromoCampaign[]>([]);
+
+  const fetchPromoCampaigns = async () => {
+      if (!isSupabaseConfigured) return;
+      try {
+          const { data, error } = await supabase.from('promo_campaigns').select('*').order('sort_order');
+          if (error || !data) return;
+          setCampaignCache(data as any);
+          setPromoCampaigns(data.map((r: any) => ({
+              id: r.id,
+              kind: r.kind,
+              enabled: r.enabled !== false,
+              sortOrder: r.sort_order || 0,
+              config: r.config || {},
+              staffNoteTh: r.staff_note_th || '',
+              updatedAt: r.updated_at
+          })));
+      } catch (e) { console.error('Campaigns fetch failed', e); }
+  };
+
+  const updatePromoCampaign = async (c: PromoCampaign): Promise<boolean> => {
+      try {
+          let updatedBy: string | null = null;
+          try {
+              const { data: s } = await supabase.auth.getSession();
+              updatedBy = s?.session?.user?.email || null;
+          } catch (e) {}
+          const { error } = await supabase.from('promo_campaigns').upsert({
+              id: c.id,
+              kind: c.kind,
+              enabled: c.enabled,
+              sort_order: c.sortOrder || 0,
+              config: c.config || {},
+              staff_note_th: c.staffNoteTh || null,
+              updated_at: new Date().toISOString(),
+              updated_by: updatedBy
+          });
+          if (error) {
+              console.error('Campaign save failed', error);
+              alert('บันทึกแคมเปญไม่สำเร็จ: ' + error.message);
+              return false;
+          }
+          await fetchPromoCampaigns(); // refresh state + module cache used by grant functions
+          return true;
+      } catch (e) {
+          console.error('Campaign save failed', e);
+          alert('บันทึกแคมเปญไม่สำเร็จ');
+          return false;
+      }
+  };
+
+  // ======================================================================
+  // SUPPLIER + STOCK SYSTEM (นับมือเช้า-เย็น + จดของเข้า — v1 ไม่ตัดอัตโนมัติ)
+  // ======================================================================
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+
+  const lowStockItems = useMemo(
+      () => stockItems.filter(i => i.active !== false && Number(i.currentQty) <= Number(i.minLevel)),
+      [stockItems]
+  );
+
+  const staffEmail = async (): Promise<string | null> => {
+      try {
+          const { data: s } = await supabase.auth.getSession();
+          return s?.session?.user?.email || null;
+      } catch (e) { return null; }
+  };
+
+  const mapStockItem = (r: any): StockItem => ({
+      id: r.id, name: r.name, unit: r.unit || 'ชิ้น', category: r.category || 'other',
+      minLevel: Number(r.min_level) || 0, currentQty: Number(r.current_qty) || 0,
+      costPerUnit: (r.cost_per_unit !== null && r.cost_per_unit !== undefined) ? Number(r.cost_per_unit) : undefined,
+      supplierId: r.supplier_id || undefined, sortOrder: r.sort_order || 0,
+      active: r.active !== false, updatedAt: r.updated_at
+  });
+
+  const fetchStockData = async () => {
+      if (!isSupabaseConfigured) return;
+      try {
+          const [supRes, itemRes, movRes] = await Promise.all([
+              supabase.from('suppliers').select('*').order('name'),
+              supabase.from('stock_items').select('*').order('sort_order').order('name'),
+              supabase.from('stock_movements').select('*').order('created_at', { ascending: false }).limit(60)
+          ]);
+          if (supRes.data) setSuppliers(supRes.data.map((r: any) => ({
+              id: r.id, name: r.name, phone: r.phone || '', lineId: r.line_id || '',
+              contactPerson: r.contact_person || '', categories: r.categories || '',
+              note: r.note || '', active: r.active !== false, createdAt: r.created_at
+          })));
+          if (itemRes.data) setStockItems(itemRes.data.map(mapStockItem));
+          if (movRes.data) setStockMovements(movRes.data.map((r: any) => ({
+              id: r.id, itemId: r.item_id, type: r.type, session: r.session || undefined,
+              qty: Number(r.qty),
+              qtyBefore: (r.qty_before !== null && r.qty_before !== undefined) ? Number(r.qty_before) : undefined,
+              qtyAfter: (r.qty_after !== null && r.qty_after !== undefined) ? Number(r.qty_after) : undefined,
+              unitCost: (r.unit_cost !== null && r.unit_cost !== undefined) ? Number(r.unit_cost) : undefined,
+              totalCost: (r.total_cost !== null && r.total_cost !== undefined) ? Number(r.total_cost) : undefined,
+              supplierId: r.supplier_id || undefined, supplierName: r.supplier_name || undefined,
+              expenseId: r.expense_id || undefined, note: r.note || undefined,
+              createdBy: r.created_by || undefined, createdAt: r.created_at
+          })));
+      } catch (e) { console.error('Stock fetch failed', e); }
+  };
+
+  // Stock tables are staff-only (RLS) — load once staff signs in
+  useEffect(() => {
+      if (isAdminLoggedIn && isSupabaseConfigured) { fetchStockData(); }
+  }, [isAdminLoggedIn]);
+
+  const addSupplier = async (s: Supplier) => {
+      if (isSupabaseConfigured) {
+          const { error } = await supabase.from('suppliers').insert([{
+              id: s.id, name: s.name, phone: s.phone || null, line_id: s.lineId || null,
+              contact_person: s.contactPerson || null, categories: s.categories || null,
+              note: s.note || null, active: true
+          }]);
+          if (error) { alert('บันทึก Supplier ไม่สำเร็จ: ' + error.message); return; }
+      }
+      setSuppliers(prev => [...prev, { ...s, active: true }].sort((a, b) => a.name.localeCompare(b.name, 'th')));
+  };
+
+  const updateSupplier = async (s: Supplier) => {
+      if (isSupabaseConfigured) {
+          const { error } = await supabase.from('suppliers').update({
+              name: s.name, phone: s.phone || null, line_id: s.lineId || null,
+              contact_person: s.contactPerson || null, categories: s.categories || null,
+              note: s.note || null, active: s.active !== false
+          }).eq('id', s.id);
+          if (error) { alert('บันทึก Supplier ไม่สำเร็จ: ' + error.message); return; }
+      }
+      setSuppliers(prev => prev.map(x => x.id === s.id ? { ...x, ...s } : x));
+  };
+
+  const deleteSupplier = async (id: string) => {
+      if (isSupabaseConfigured) {
+          const { error } = await supabase.from('suppliers').delete().eq('id', id);
+          if (error) { alert('ลบ Supplier ไม่สำเร็จ: ' + error.message); return; }
+      }
+      setSuppliers(prev => prev.filter(x => x.id !== id));
+      setStockItems(prev => prev.map(x => x.supplierId === id ? { ...x, supplierId: undefined } : x));
+  };
+
+  const addStockItem = async (item: StockItem) => {
+      if (isSupabaseConfigured) {
+          const { error } = await supabase.from('stock_items').insert([{
+              id: item.id, name: item.name, unit: item.unit || 'ชิ้น', category: item.category || 'other',
+              min_level: item.minLevel || 0, current_qty: item.currentQty || 0,
+              cost_per_unit: item.costPerUnit ?? null, supplier_id: item.supplierId || null,
+              sort_order: item.sortOrder || 0, active: true
+          }]);
+          if (error) { alert('เพิ่มวัตถุดิบไม่สำเร็จ: ' + error.message); return; }
+      }
+      setStockItems(prev => [...prev, { ...item, active: true }]);
+  };
+
+  const updateStockItem = async (item: StockItem) => {
+      if (isSupabaseConfigured) {
+          const { error } = await supabase.from('stock_items').update({
+              name: item.name, unit: item.unit, category: item.category || 'other',
+              min_level: item.minLevel || 0, current_qty: item.currentQty || 0,
+              cost_per_unit: item.costPerUnit ?? null, supplier_id: item.supplierId || null,
+              sort_order: item.sortOrder || 0, active: item.active !== false,
+              updated_at: new Date().toISOString()
+          }).eq('id', item.id);
+          if (error) { alert('บันทึกวัตถุดิบไม่สำเร็จ: ' + error.message); return; }
+      }
+      setStockItems(prev => prev.map(x => x.id === item.id ? { ...x, ...item } : x));
+  };
+
+  const deleteStockItem = async (id: string, hard: boolean = false) => {
+      if (hard) {
+          if (isSupabaseConfigured) {
+              const { error } = await supabase.from('stock_items').delete().eq('id', id);
+              if (error) { alert('ลบวัตถุดิบไม่สำเร็จ: ' + error.message); return; }
+          }
+          setStockItems(prev => prev.filter(x => x.id !== id));
+          setStockMovements(prev => prev.filter(m => m.itemId !== id));
+      } else {
+          const item = stockItems.find(x => x.id === id);
+          if (!item) return;
+          await updateStockItem({ ...item, active: false });
+      }
+  };
+
+  // นับสต็อก (เช้า/เย็น): บันทึก movement 'count' + เซ็ตยอดคงเหลือใหม่ทุกตัวที่กรอก
+  const recordStockCount = async (session: 'morning' | 'evening', entries: { itemId: string; qty: number }[]): Promise<number> => {
+      const email = await staffEmail();
+      const nowIso = new Date().toISOString();
+      const movements: any[] = [];
+      const updates: { id: string; qty: number }[] = [];
+      entries.forEach((e, idx) => {
+          const item = stockItems.find(x => x.id === e.itemId);
+          if (!item || e.qty === undefined || e.qty === null || isNaN(Number(e.qty))) return;
+          const qty = Math.max(0, Number(e.qty));
+          movements.push({
+              id: `mov_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+              item_id: item.id, type: 'count', session,
+              qty, qty_before: item.currentQty, qty_after: qty,
+              created_by: email, created_at: nowIso
+          });
+          updates.push({ id: item.id, qty });
+      });
+      if (movements.length === 0) return 0;
+      if (isSupabaseConfigured) {
+          const { error } = await supabase.from('stock_movements').insert(movements);
+          if (error) { alert('บันทึกการนับไม่สำเร็จ: ' + error.message); return 0; }
+          await Promise.all(updates.map(u =>
+              supabase.from('stock_items').update({ current_qty: u.qty, updated_at: nowIso }).eq('id', u.id)
+          ));
+      }
+      setStockItems(prev => prev.map(x => {
+          const u = updates.find(uu => uu.id === x.id);
+          return u ? { ...x, currentQty: u.qty } : x;
+      }));
+      fetchStockData();
+      return updates.length;
+  };
+
+  // รับของเข้าจาก supplier: movement 'receive' + บวกยอด + (ทางเลือก) ลงบัญชีรายจ่ายอัตโนมัติ
+  const receiveStock = async (
+      entries: { itemId: string; qty: number; unitCost?: number }[],
+      opts: { supplierId?: string; billNumber?: string; note?: string; createExpense: boolean }
+  ): Promise<boolean> => {
+      const valid = entries.filter(e => e.itemId && Number(e.qty) > 0);
+      if (valid.length === 0) return false;
+      const email = await staffEmail();
+      const nowIso = new Date().toISOString();
+      const supplier = suppliers.find(s => s.id === opts.supplierId);
+      const supplierName = supplier ? supplier.name : '';
+      let totalCost = 0;
+      const lines: string[] = [];
+      valid.forEach(e => {
+          const item = stockItems.find(x => x.id === e.itemId);
+          totalCost += (Number(e.unitCost) || 0) * Number(e.qty);
+          if (item) lines.push(`${item.name} ${e.qty} ${item.unit}${e.unitCost ? ` @฿${e.unitCost}` : ''}`);
+      });
+
+      // Linked expense first, so movements can reference expense_id
+      let expenseId: string | undefined = undefined;
+      if (opts.createExpense && totalCost > 0) {
+          expenseId = `exp_${Date.now()}`;
+          await addExpense({
+              id: expenseId,
+              description: `รับวัตถุดิบเข้าสต็อก (${valid.length} รายการ)${supplierName ? ` — ${supplierName}` : ''}`,
+              amount: totalCost,
+              category: 'COGS',
+              date: nowIso.split('T')[0],
+              note: lines.join(', ') + (opts.note ? ` | ${opts.note}` : ''),
+              vendor: supplierName || undefined,
+              billNumber: opts.billNumber || undefined
+          });
+      }
+
+      const movements: any[] = [];
+      const updates: { id: string; qty: number; cost?: number }[] = [];
+      valid.forEach((e, idx) => {
+          const item = stockItems.find(x => x.id === e.itemId);
+          if (!item) return;
+          const qty = Number(e.qty);
+          const after = Number(item.currentQty) + qty;
+          movements.push({
+              id: `mov_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+              item_id: item.id, type: 'receive',
+              qty, qty_before: item.currentQty, qty_after: after,
+              unit_cost: e.unitCost ?? null,
+              total_cost: e.unitCost ? Number(e.unitCost) * qty : null,
+              supplier_id: opts.supplierId || null, supplier_name: supplierName || null,
+              expense_id: expenseId || null,
+              note: opts.billNumber ? `บิล ${opts.billNumber}` : (opts.note || null),
+              created_by: email, created_at: nowIso
+          });
+          updates.push({ id: item.id, qty: after, cost: e.unitCost });
+      });
+      if (isSupabaseConfigured) {
+          const { error } = await supabase.from('stock_movements').insert(movements);
+          if (error) { alert('บันทึกรับของไม่สำเร็จ: ' + error.message); return false; }
+          await Promise.all(updates.map(u => {
+              const payload: any = { current_qty: u.qty, updated_at: nowIso };
+              if (u.cost !== undefined && u.cost !== null && !isNaN(Number(u.cost)) && Number(u.cost) > 0) payload.cost_per_unit = Number(u.cost);
+              return supabase.from('stock_items').update(payload).eq('id', u.id);
+          }));
+      }
+      setStockItems(prev => prev.map(x => {
+          const u = updates.find(uu => uu.id === x.id);
+          if (!u) return x;
+          return { ...x, currentQty: u.qty, costPerUnit: (u.cost !== undefined && Number(u.cost) > 0) ? Number(u.cost) : x.costPerUnit };
+      }));
+      fetchStockData();
+      return true;
+  };
+
+  // ปรับยอด/บันทึกของเสีย
+  const adjustStock = async (itemId: string, newQty: number, note?: string, type: 'adjust' | 'waste' = 'adjust') => {
+      const item = stockItems.find(x => x.id === itemId);
+      if (!item) return;
+      const email = await staffEmail();
+      const nowIso = new Date().toISOString();
+      const qty = Math.max(0, Number(newQty) || 0);
+      if (isSupabaseConfigured) {
+          const { error } = await supabase.from('stock_movements').insert([{
+              id: `mov_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              item_id: itemId, type,
+              qty: qty - Number(item.currentQty), qty_before: item.currentQty, qty_after: qty,
+              note: note || null, created_by: email, created_at: nowIso
+          }]);
+          if (error) { alert('บันทึกไม่สำเร็จ: ' + error.message); return; }
+          await supabase.from('stock_items').update({ current_qty: qty, updated_at: nowIso }).eq('id', itemId);
+      }
+      setStockItems(prev => prev.map(x => x.id === itemId ? { ...x, currentQty: qty } : x));
+      fetchStockData();
+  };
+
+  // ======================================================================
+  // NEW-DEPLOY DETECTION — POS/Kitchen tablets stay open for days and keep
+  // running old code; poll /api/version and prompt a refresh when it changes
+  // ======================================================================
+  const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  useEffect(() => {
+      let firstRevision: string | null = null;
+      let stopped = false;
+      const check = async () => {
+          try {
+              const r = await fetch('/api/version', { cache: 'no-store' });
+              if (!r.ok) return;
+              const j = await r.json();
+              if (!j || !j.revision || j.revision === 'dev') return;
+              if (firstRevision === null) { firstRevision = j.revision; return; }
+              if (!stopped && j.revision !== firstRevision) setNewVersionAvailable(true);
+          } catch (e) { /* offline — ignore */ }
+      };
+      check();
+      const iv = setInterval(check, 4 * 60 * 1000);
+      return () => { stopped = true; clearInterval(iv); };
+  }, []);
+
   // Store Settings
   const toggleStoreStatus = async (isOpen: boolean, message?: string) => {
       const updates: any = { is_open: isOpen };
@@ -3462,6 +3879,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       vatEnabled, setVatEnabled,
       partners, addPartner, updatePartner, deletePartner,
       promoCodes, addPromoCode, updatePromoCode, deletePromoCode,
+      promoCampaigns, updatePromoCampaign,
+      suppliers, addSupplier, updateSupplier, deleteSupplier,
+      stockItems, stockMovements, lowStockItems, fetchStockData,
+      addStockItem, updateStockItem, deleteStockItem,
+      recordStockCount, receiveStock, adjustStock,
+      newVersionAvailable,
       btDevice, setBtDevice,
       btCharacteristic, setBtCharacteristic,
       btStatus, setBtStatus,
