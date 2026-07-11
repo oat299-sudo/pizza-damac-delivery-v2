@@ -122,6 +122,7 @@ export interface Order {
   tableNumber?: string;
   paymentMethod?: PaymentMethod;
   pickupTime?: string;
+  scheduledAt?: string; // ISO timestamp of pre-order delivery/pickup time (machine-readable)
   deliveryPlatformRef?: string;
   rating?: number;
   comment?: string;
@@ -146,7 +147,7 @@ export interface Order {
   lalamoveVehicleType?: string;
 }
 
-export type CouponDiscountType = 'percentage_most_expensive' | 'fixed_discount' | 'free_delivery' | 'percentage_total';
+export type CouponDiscountType = 'percentage_most_expensive' | 'fixed_discount' | 'free_delivery' | 'percentage_total' | 'fixed_per_pizza';
 
 export interface Coupon {
   id: string;
@@ -159,6 +160,7 @@ export interface Coupon {
   discountValue: number; // e.g. 10 for 10% off most expensive pizza, or 50 for ฿50 off
   minOrderAmount?: number;
   applicableOrderTypes?: OrderType[]; // e.g. ['delivery', 'dine-in', 'online']
+  requiresPreorder?: boolean; // true = only valid on scheduled (pre-order) orders, not ASAP
   isUsed?: boolean;
   expiryDate?: string; // ISO date format
   badge?: string; // e.g. "สมาชิคใหม่" or "New Member", "Monthly"

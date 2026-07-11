@@ -392,8 +392,14 @@ async function startServer() {
           'Request-ID': requestId
         }
       });
-      const data = await response.json();
-      if (!response.ok) return res.status(response.status).json({ error: data });
+      // Lalamove returns 204 No Content on successful cancellation -> .json() would throw
+      const text = await response.text();
+      let data: any = {};
+      try { data = text ? JSON.parse(text) : { cancelled: true }; } catch (e) { data = { raw: text }; }
+      if (!response.ok) {
+        console.warn('Lalamove cancel failed:', response.status, text);
+        return res.status(response.status).json({ error: data });
+      }
       return res.json(data);
     } catch (e: any) {
       console.error(e);
