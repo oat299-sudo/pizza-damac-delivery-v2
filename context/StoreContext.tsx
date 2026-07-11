@@ -392,6 +392,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [thaiCodePage, setThaiCodePageState] = useState<string>(() => {
       if (typeof window !== 'undefined') {
           const cp = localStorage.getItem('damac_thai_code_page');
+          // ONE-TIME MIGRATION (2026-07): the shop's Welltech G5 prints garbage Thai in
+          // TIS-620 text mode. Graphic mode renders Thai as a bitmap = correct on EVERY
+          // printer. Auto-upgrade old text-mode settings once, matching the paper size.
+          const alreadyMigrated = localStorage.getItem('damac_gfx_migrated_v1');
+          if (!alreadyMigrated && (!cp || cp.startsWith('tis620') || cp === '26' || cp === '18' || cp === '17' || cp === '40')) {
+              const paper = localStorage.getItem('damac_paper_size') || '80mm'; // matches paperSize state default
+              const gfx = paper === '80mm' ? 'graphic-80' : 'graphic-58';
+              try {
+                  localStorage.setItem('damac_thai_code_page', gfx);
+                  localStorage.setItem('damac_gfx_migrated_v1', '1');
+              } catch(e) {}
+              return gfx;
+          }
           // Support migration from number stores to key strings
           if (cp) {
               if (cp === '26' || cp === '18' || cp === '17' || cp === '40') {
@@ -399,9 +412,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               }
               return cp;
           }
-          return 'tis620-26'; // Default to Code Page 26 (recommended text-mode, lightning-fast and stable!)
+          return 'graphic-58'; // Default: graphic mode = Thai always renders correctly
       }
-      return 'tis620-26';
+      return 'graphic-58';
   });
   const setThaiCodePage = (cp: string) => {
       setThaiCodePageState(cp);
