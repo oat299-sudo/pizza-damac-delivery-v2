@@ -23,6 +23,27 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [apiMessage, setApiMessage] = useState<string>('');
 
+  // --- ADVANCE (SCHEDULED) BOOKING for pre-orders ---
+  // If the order has a machine-readable scheduled time far enough in the future,
+  // we book Lalamove with scheduleAt = (scheduled time - 20 min rider lead).
+  const RIDER_LEAD_MIN = 20;
+  const scheduledInfo = (() => {
+    if (!order.scheduledAt) return null;
+    const t = new Date(order.scheduledAt);
+    if (isNaN(t.getTime())) return null;
+    const riderPickupAt = new Date(t.getTime() - RIDER_LEAD_MIN * 60000);
+    // Needs to be comfortably in the future for Lalamove to accept a scheduled job
+    if (riderPickupAt.getTime() < Date.now() + 15 * 60000) return null;
+    const fmt = (d: Date) => d.toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    return {
+      deliverAt: t,
+      riderPickupAt,
+      riderPickupIso: riderPickupAt.toISOString(),
+      deliverLabel: fmt(t),
+      pickupLabel: fmt(riderPickupAt)
+    };
+  })();
+
   // Check Lalamove API status on mount
   useEffect(() => {
     let active = true;
@@ -63,11 +84,12 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
     const loadQuotes = async () => {
       if (lat && lng) {
         const realQuotes = await fetchRealLalamoveQuote(
-          lat, 
-          lng, 
-          order.deliveryAddress || '', 
-          order.customerName || 'Customer', 
-          order.customerPhone || ''
+          lat,
+          lng,
+          order.deliveryAddress || '',
+          order.customerName || 'Customer',
+          order.customerPhone || '',
+          scheduledInfo?.riderPickupIso // pre-orders get a SCHEDULED quotation
         );
         if (realQuotes && realQuotes.length > 0) {
           setQuotes(realQuotes);
@@ -80,7 +102,7 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
     };
 
     loadQuotes();
-  }, [order.deliveryAddress, order.deliveryLat, order.deliveryLng, order.customerName, order.customerPhone]);
+  }, [order.deliveryAddress, order.deliveryLat, order.deliveryLng, order.customerName, order.customerPhone, order.scheduledAt]);
 
   // NOTE: The old auto-advance "Simulation effect" and the mock-rider fallback are REMOVED.
   // Production rule: only REAL Lalamove bookings are allowed. Real status updates arrive
@@ -151,27 +173,57 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
     }
   };
 
+  const clearBookingFields = async () => {
+    await updateOrderFields(order.id, {
+      lalamoveStatus: 'none',
+      delivery_status: 'canceled',
+      lalamoveTrackingId: null,
+      lalamove_order_id: null,
+      lalamove_share_link: null,
+      lalamoveRiderName: null,
+      lalamoveRiderPhone: null,
+      lalamoveVehicleType: null
+    });
+  };
+
   const handleCancelBooking = async () => {
-    if (confirm(language === 'th' ? "ต้องการยกเลิกการเรียกไรเดอร์ Lalamove ใช่หรือไม่?" : "Are you sure you want to cancel the Lalamove booking?")) {
-      if (order.lalamove_order_id) {
-          // Call the backend to cancel the real order
-          try {
-              await fetch(`/api/lalamove/order/${order.lalamove_order_id}`, { method: 'DELETE' });
-          } catch(e) {
-              console.error(e);
-          }
+    if (!confirm(language === 'th' ? "ต้องการยกเลิกการเรียกไรเดอร์ Lalamove ใช่หรือไม่?" : "Are you sure you want to cancel the Lalamove booking?")) return;
+
+    // No real Lalamove order attached — just clear the local state
+    if (!order.lalamove_order_id) {
+      await clearBookingFields();
+      return;
+    }
+
+    // REAL order: only clear our state if Lalamove actually confirms the cancellation.
+    // (Old bug: state was cleared even when the real cancel failed -> staff re-booked
+    //  and TWO riders showed up. Never again.)
+    try {
+      const res = await fetch(`/api/lalamove/order/${order.lalamove_order_id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await clearBookingFields();
+        alert(language === 'th' ? '✅ ยกเลิกไรเดอร์กับ Lalamove เรียบร้อยแล้ว' : '✅ Lalamove booking cancelled.');
+        return;
       }
-      
-      await updateOrderFields(order.id, {
-        lalamoveStatus: 'none',
-        delivery_status: 'canceled',
-        lalamoveTrackingId: null,
-        lalamove_order_id: null,
-        lalamove_share_link: null,
-        lalamoveRiderName: null,
-        lalamoveRiderPhone: null,
-        lalamoveVehicleType: null
-      });
+      // Cancel REJECTED by Lalamove (e.g. rider already on the way)
+      let reason = '';
+      try {
+        const errJson = await res.json();
+        const inner = errJson?.error?.errors || errJson?.errors;
+        reason = Array.isArray(inner) && inner.length > 0
+          ? inner.map((e: any) => e.message || e.detail || e.id).filter(Boolean).join(' / ')
+          : JSON.stringify(errJson?.error || errJson).slice(0, 200);
+      } catch (e) { reason = `HTTP ${res.status}`; }
+
+      const forceClear = confirm(language === 'th'
+        ? `⚠️ Lalamove ไม่ยอมรับการยกเลิก:\n${reason}\n\nงานจริงอาจยังวิ่งอยู่! กรุณายกเลิกในแอป Lalamove หรือโทรหาไรเดอร์ก่อน\n\nกด OK เฉพาะเมื่อจัดการในแอป Lalamove เรียบร้อยแล้ว เพื่อล้างสถานะในระบบร้าน (กด Cancel เพื่อคงสถานะไว้)`
+        : `⚠️ Lalamove rejected the cancellation:\n${reason}\n\nThe real job may still be running! Cancel it in the Lalamove app first.\n\nPress OK ONLY after handling it in the Lalamove app to clear the shop-side status.`);
+      if (forceClear) await clearBookingFields();
+    } catch (e) {
+      console.error(e);
+      alert(language === 'th'
+        ? 'เชื่อมต่อเพื่อยกเลิกไม่สำเร็จ — งานจริงยังไม่ถูกยกเลิก กรุณาลองใหม่หรือยกเลิกในแอป Lalamove'
+        : 'Network error — the real booking was NOT cancelled. Retry or cancel in the Lalamove app.');
     }
   };
 
@@ -213,6 +265,13 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
       {status === 'none' ? (
         // QUOTE AND BOOKING VIEW
         <div className="space-y-2.5">
+          {scheduledInfo && (
+            <div className="bg-purple-50 border-2 border-purple-300 rounded-lg px-3 py-2 text-xs font-bold text-purple-800 leading-relaxed">
+              🗓 {language === 'th'
+                ? `ออเดอร์นัดส่ง ${scheduledInfo.deliverLabel} น. — กดเรียกได้เลยตอนนี้ ระบบจะ "จองไรเดอร์ล่วงหน้า" ให้มารับของ ~${scheduledInfo.pickupLabel} น. (ก่อนเวลาส่ง ${RIDER_LEAD_MIN} นาที) ไม่ต้องรอกดใกล้เวลา`
+                : `Scheduled order (${scheduledInfo.deliverLabel}) — booking now creates an ADVANCE Lalamove job: rider arrives ~${scheduledInfo.pickupLabel} (${RIDER_LEAD_MIN} min before delivery time).`}
+            </div>
+          )}
           <p className="font-bold text-gray-500 uppercase text-sm">
             {language === 'th' ? 'เลือกประเภทรถเพื่อคำนวณราคาและเรียกไรเดอร์' : 'Select vehicle to book:'}
           </p>
@@ -277,7 +336,9 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
               <Play size={12} />
             )}
             {hasRealQuote
-              ? (language === 'th' ? 'เรียกไรเดอร์ Lalamove ทันที (ราคาจริง)' : 'Book Lalamove Dispatch')
+              ? (scheduledInfo
+                  ? (language === 'th' ? `📅 จองไรเดอร์ล่วงหน้า (มารับ ~${scheduledInfo.pickupLabel} น.)` : `📅 Book scheduled rider (~${scheduledInfo.pickupLabel})`)
+                  : (language === 'th' ? 'เรียกไรเดอร์ Lalamove ทันที (ราคาจริง)' : 'Book Lalamove Dispatch'))
               : (language === 'th' ? 'เรียกไรเดอร์ไม่ได้ — ไม่มีราคาจริง' : 'Dispatch disabled — no real quote')}
           </button>
         </div>
