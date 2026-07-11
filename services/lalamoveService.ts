@@ -232,16 +232,33 @@ export async function fetchRealLalamoveQuote(
   }
 }
 
+// Lalamove TH requires E.164 phone format (+66XXXXXXXXX).
+// Customers type "0865465617" — convert it, or Lalamove rejects the order.
+export function toLalamovePhoneTH(p: string): string {
+  const digits = String(p || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('66')) return `+${digits}`;
+  if (digits.startsWith('0')) return `+66${digits.slice(1)}`;
+  return `+66${digits}`;
+}
+
 export async function createRealLalamoveOrder(
   quotationId: string,
   customerName: string,
   customerPhone: string,
-  stopIds: string[]
-): Promise<{ orderId: string; shareLink?: string } | null> {
+  stopIds: string[],
+  shopPhone?: string
+): Promise<{ orderId: string; shareLink?: string } | { error: string } | null> {
   try {
     if (!stopIds || stopIds.length < 2) {
       console.warn("Cannot create Lalamove order without valid stopIds from quotation.");
-      return null;
+      return { error: 'ใบเสนอราคาไม่มีข้อมูลจุดรับ-ส่ง (stopIds) — กดขอราคาใหม่อีกครั้ง' };
+    }
+
+    const senderPhone = toLalamovePhoneTH(shopPhone || '0994979199') || '+66994979199';
+    const recipientPhone = toLalamovePhoneTH(customerPhone);
+    if (!recipientPhone) {
+      return { error: 'เบอร์โทรลูกค้าว่าง/ไม่ถูกต้อง — เพิ่มเบอร์ลูกค้าในออเดอร์ก่อนเรียกไรเดอร์' };
     }
 
     const payload = {
@@ -250,16 +267,16 @@ export async function createRealLalamoveOrder(
         sender: {
           stopId: stopIds[0],
           name: "Pizza Damac Nonthaburi",
-          phone: "+6621234567"
+          phone: senderPhone
         },
         recipients: [
           {
             stopId: stopIds[1],
             name: customerName || "Customer",
-            phone: customerPhone || "+66890000000"
+            phone: recipientPhone
           }
         ],
-        isConfirmByCustomer: false
+        isPODEnabled: false
       }
     };
 
@@ -270,9 +287,18 @@ export async function createRealLalamoveOrder(
     });
 
     if (!res.ok) {
-      const err = await res.text();
-      console.warn("Failed to place real Lalamove order:", err);
-      return null;
+      let detail = '';
+      try {
+        const errJson = await res.json();
+        const inner = errJson?.error?.errors || errJson?.errors;
+        if (Array.isArray(inner) && inner.length > 0) {
+          detail = inner.map((e: any) => e.message || e.detail || e.id).filter(Boolean).join(' / ');
+        } else {
+          detail = JSON.stringify(errJson?.error || errJson).slice(0, 300);
+        }
+      } catch (e) { detail = `HTTP ${res.status}`; }
+      console.warn("Failed to place real Lalamove order:", detail);
+      return { error: detail || `HTTP ${res.status}` };
     }
 
     const responseData = await res.json();
@@ -280,9 +306,9 @@ export async function createRealLalamoveOrder(
       orderId: responseData.data.orderId,
       shareLink: responseData.data.shareLink
     };
-  } catch (error) {
-    console.warn("Real Lalamove order failed, falling back to simulator.", error);
-    return null;
+  } catch (error: any) {
+    console.warn("Real Lalamove order failed:", error);
+    return { error: String(error?.message || error) };
   }
 }
 
