@@ -139,17 +139,19 @@ export async function fetchRealLalamoveQuote(
   lng: number,
   address: string,
   customerName: string,
-  customerPhone: string
+  customerPhone: string,
+  scheduleAt?: string // ISO UTC — request a SCHEDULED quotation (advance booking for pre-orders)
 ): Promise<LalamoveQuote[] | null> {
   try {
     const fetchQuoteFor = async (v: 'motorcycle' | 'car' | 'pickup') => {
       try {
         const lalaServiceType = v === 'motorcycle' ? 'MOTORCYCLE' : v === 'car' ? 'CAR' : 'PICKUP';
-        
+
         const payload = {
           data: {
             serviceType: lalaServiceType,
             language: "th_TH",
+            ...(scheduleAt ? { scheduleAt } : {}),
             stops: [
               {
                 coordinates: {
