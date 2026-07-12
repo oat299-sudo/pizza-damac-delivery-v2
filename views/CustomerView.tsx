@@ -7,6 +7,7 @@ import { ShoppingCart, Plus, Minus, Trash2, X, User, ChefHat, Sparkles, MapPin, 
 import { calculateDistanceKm, reverseGeocode } from '../utils/geo';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { generatePromptPayPayload } from '../utils/promptpay';
+import { saveQrHiRes } from '../utils/saveImage';
 import DeliveryMap from '../src/components/DeliveryMap';
 import { getLalamoveQuote, fetchRealLalamoveQuote } from '../services/lalamoveService';
 
@@ -512,49 +513,16 @@ export const CustomerView: React.FC = () => {
       }
   }, [availableQuotes, selectedVehicle]);
 
-  const handleDownloadQR = (id: string, refNo?: string) => {
+  // บันทึกรูป QR แบบใช้ได้จริงทุกเครื่อง (แชร์ชีท → ดาวน์โหลด → กดค้างที่รูป)
+  // แก้บั๊กเดิม: <a download> เงียบหายบน iPhone/LINE browser ลูกค้าคิดว่าบันทึกแล้วแต่รูปไม่ลงเครื่อง
+  const handleDownloadQR = async (id: string, refNo?: string) => {
       const canvas = document.getElementById(id) as HTMLCanvasElement | null;
-      if (canvas) {
-          try {
-              // Create high-resolution offscreen canvas (800x800 px) for a pristine scan experience on bank apps
-              const offCanvas = document.createElement('canvas');
-              offCanvas.width = 800;
-              offCanvas.height = 800;
-              
-              const ctx = offCanvas.getContext('2d');
-              if (ctx) {
-                  // Disable image smoothing to maintain ultra-sharp QR pixels when resizing
-                  ctx.imageSmoothingEnabled = false;
-                  
-                  // 1. Fill background with absolute solid white
-                  ctx.fillStyle = '#ffffff';
-                  ctx.fillRect(0, 0, 800, 800);
-                  
-                  // 2. Draw outer border to help camera scanners detect boundaries easily
-                  ctx.strokeStyle = '#f1f5f9';
-                  ctx.lineWidth = 12;
-                  ctx.strokeRect(20, 20, 760, 760);
-                  
-                  // 3. Draw the original QR code in the center (scaled beautifully to 640x640 px with 80px quiet zones)
-                  ctx.drawImage(canvas, 80, 80, 640, 640);
-                  
-                  // 4. Export as a high-contrast, non-transparent solid JPEG image
-                  const url = offCanvas.toDataURL('image/jpeg', 1.0);
-                  const link = document.createElement('a');
-                  link.download = `PromptPay_Order_${refNo || 'Payment'}.jpg`;
-                  link.href = url;
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-              } else {
-                  throw new Error("Could not construct 2D context");
-               }
-          } catch (err) {
-              console.error('Failed to save QR Code', err);
-              alert(language === 'th' ? 'ไม่สามารถบันทึกรูปภาพได้ในเบราว์เซอร์นี้' : 'Cannot save image in this browser.');
-          }
-      } else {
-          alert('QR Code element not found.');
+      if (!canvas) { alert('QR Code element not found.'); return; }
+      try {
+          await saveQrHiRes(canvas, `PromptPay_Order_${refNo || 'Payment'}.jpg`, language === 'th' ? 'th' : 'en');
+      } catch (err) {
+          console.error('Failed to save QR Code', err);
+          alert(language === 'th' ? 'บันทึกอัตโนมัติไม่ได้ — กรุณาแคปหน้าจอ QR แทนได้เลย' : 'Auto-save failed — please screenshot the QR instead.');
       }
   };
 

@@ -10,7 +10,8 @@ import LalamoveDispatchPanel from '../src/components/LalamoveDispatchPanel';
 import { LalamoveSettingsCard } from '../src/components/LalamoveSettingsCard';
 import PromoBoard from '../src/components/PromoBoard';
 import StockManager from '../src/components/StockManager';
-import { Package } from 'lucide-react';
+import { OrderSoundPicker, playOrderSound } from '../src/components/OrderSoundPicker';
+import { Package, Bell } from 'lucide-react';
 import { Plus, Minus, Trash2, ShoppingBag, DollarSign, Settings, User, X, Edit2, Power, LogOut, Upload, Image as ImageIcon, Bike, Store, List, PieChart, Calculator, Globe, ToggleLeft, ToggleRight, Camera, ChevronUp, ChevronDown, ChevronLeft, AlertCircle, Calendar, Link, Star, Layers, Database, MousePointerClick, MessageCircle, MapPin, Facebook, Phone, CheckCircle, Video, PlayCircle, Newspaper, Save, Download, QrCode, Printer, CheckCircle2, ChefHat, Banknote, CreditCard, Lock, Unlock, ArrowRight, Utensils, RefreshCw, Send, Check, ChevronRight, ArrowLeft, Filter, FileSpreadsheet, Maximize2, Sparkles, Receipt, Eye, Volume2, VolumeX, Clock, Search, Tag, Ticket, Gift, Truck } from 'lucide-react';
 
 const convertGoogleDriveUrl = (url: string): string => {
@@ -988,6 +989,58 @@ export const POSView: React.FC = () => {
             console.warn("Failed to play alert sound", e);
         }
     };
+
+    // เสียงกริ่ง 3 โน้ต (ใช้เป็นเสียงเตือนออเดอร์ใหม่แบบ "กริ่งเดิม" / fallback ของไฟล์ MP3)
+    const playBellChime = () => {
+        try {
+            const ctx = audioCtxRef.current || new (window.AudioContext || (window as any).webkitAudioContext)();
+            if (!audioCtxRef.current) audioCtxRef.current = ctx;
+            if (ctx.state === 'suspended') ctx.resume();
+            const chime = (freq: number, delay: number, duration: number) => {
+                const osc = ctx.createOscillator();
+                const gainNode = ctx.createGain();
+                osc.connect(gainNode);
+                gainNode.connect(ctx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+                gainNode.gain.setValueAtTime(0, ctx.currentTime + delay);
+                gainNode.gain.linearRampToValueAtTime(0.3, ctx.currentTime + delay + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+                osc.start(ctx.currentTime + delay);
+                osc.stop(ctx.currentTime + delay + duration + 0.1);
+            };
+            chime(523.25, 0, 0.4);      // C5
+            chime(659.25, 0.12, 0.4);   // E5
+            chime(783.99, 0.24, 0.8);   // G5
+        } catch (e) {
+            console.warn("Failed to play bell chime", e);
+        }
+    };
+
+    // แจ้งเตือนเสียงเมื่อมีออเดอร์ใหม่เข้า POS (แบบเดียวกับจอครัว — เล่นเสียงที่เลือกไว้)
+    const posSessionStartRef = React.useRef<number>(Date.now());
+    const posPrevOrderIdsRef = React.useRef<Set<string>>(new Set());
+    useEffect(() => {
+        if (!orders) return;
+        if (posPrevOrderIdsRef.current.size === 0 && orders.length > 0) {
+            posPrevOrderIdsRef.current = new Set(orders.map(o => o.id));
+            return;
+        }
+        let hasNewOrder = false;
+        for (const order of orders) {
+            if (!posPrevOrderIdsRef.current.has(order.id)) {
+                posPrevOrderIdsRef.current.add(order.id);
+                const orderTime = order.createdAt ? new Date(order.createdAt).getTime() : Date.now();
+                const isNewSessionOrder = orderTime > posSessionStartRef.current - 15000;
+                if (isNewSessionOrder && (order.status === 'pending' || order.status === 'confirmed')) {
+                    hasNewOrder = true;
+                }
+            }
+        }
+        if (hasNewOrder && soundEnabled) {
+            playOrderSound(playBellChime);
+        }
+    }, [orders, soundEnabled]);
 
     // --- LOCAL STATE FOR SETTINGS FORMS ---
     const [mediaForm, setMediaForm] = useState({
@@ -5175,6 +5228,12 @@ export const POSView: React.FC = () => {
                                         );
                                     })}
                                 </div>
+                            </div>
+
+                            {/* Order Alert Sound Settings */}
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                                <h3 className="font-bold text-lg text-gray-800 mb-4 border-b border-gray-100 pb-2 flex items-center gap-2"><Bell size={20} className="text-brand-500"/> {language === 'th' ? 'เสียงเตือนเมื่อมีออเดอร์ใหม่' : 'New Order Alert Sound'}</h3>
+                                <OrderSoundPicker language={language} onPreviewChime={playBellChime} />
                             </div>
 
                             {/* Printer Settings */}

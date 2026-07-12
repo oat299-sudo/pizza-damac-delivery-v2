@@ -3,6 +3,7 @@ import { useStore } from '../context/StoreContext';
 import { Package, Truck, CheckCircle, ExternalLink, ArrowLeft, RefreshCw, Download } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { generatePromptPayPayload } from '../utils/promptpay';
+import { saveQrHiRes } from '../utils/saveImage';
 
 export const TrackView: React.FC = () => {
     const { trackingOrderId, orders, navigateTo, language, t, storeSettings } = useStore();
@@ -41,14 +42,12 @@ export const TrackView: React.FC = () => {
         && order.status !== 'completed'
         && order.status !== 'cancelled';
 
-    const handleDownloadTrackQR = () => {
+    // บันทึกรูป QR แบบใช้ได้จริงทุกเครื่อง (แชร์ชีท → ดาวน์โหลด → กดค้างที่รูป)
+    const handleDownloadTrackQR = async () => {
         try {
             const canvas = document.getElementById('promptpay-qr-track') as HTMLCanvasElement | null;
             if (!canvas) return;
-            const link = document.createElement('a');
-            link.download = `PizzaDamac-Payment-${String(order.id).slice(-6)}.png`;
-            link.href = canvas.toDataURL('image/png');
-            link.click();
+            await saveQrHiRes(canvas, `PizzaDamac-Payment-${String(order.id).slice(-6)}.jpg`, language === 'th' ? 'th' : 'en');
         } catch (e) { console.error(e); }
     };
 

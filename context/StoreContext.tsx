@@ -5,7 +5,8 @@ import {
   PaymentMethod, CustomerProfile, Expense, StoreSettings, NewsItem,
   SavedFavorite, Language, AppView, ProductCategory, SubItem, ExpenseCategory, Partner,
   PromoCode, Coupon, CouponDiscountType,
-  PromoCampaign, Supplier, StockItem, StockMovement
+  PromoCampaign, Supplier, StockItem, StockMovement,
+  MenuRecipe, RecipeLine, CostSettings
 } from '../types';
 import { 
   INITIAL_MENU, INITIAL_TOPPINGS, DEFAULT_STORE_SETTINGS, 
@@ -183,6 +184,16 @@ interface StoreContextType {
     opts: { supplierId?: string; billNumber?: string; note?: string; createExpense: boolean }
   ) => Promise<boolean>;
   adjustStock: (itemId: string, newQty: number, note?: string, type?: 'adjust' | 'waste') => Promise<void>;
+
+  // Recipe costing + auto stock deduction + P&L
+  menuRecipes: Record<string, MenuRecipe>;
+  costSettings: CostSettings;
+  fetchCostingData: () => Promise<void>;
+  saveRecipe: (menuItemId: string, lines: RecipeLine[], note?: string) => Promise<boolean>;
+  deleteRecipe: (menuItemId: string) => Promise<void>;
+  saveCostSettings: (cfg: CostSettings) => Promise<boolean>;
+  recipeFoodCost: (menuItemId: string) => number | null;
+  computeOrderCogs: (order: Order) => { amount: number; deductions: { stockItemId: string; qty: number }[] };
 
   // New-deploy detection for always-open POS/Kitchen tabs
   newVersionAvailable: boolean;
@@ -2030,6 +2041,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   paymentMethod: d.payment_method,
                   pickupTime: d.pickup_time,
                   scheduledAt: d.scheduled_at,
+                  cogsAmount: d.cogs_amount !== null && d.cogs_amount !== undefined ? Number(d.cogs_amount) : undefined,
+                  stockDeducted: d.stock_deducted === true,
                   tableNumber: d.table_number,
                   rating: d.rating,
                   comment: d.comment,
@@ -3184,6 +3197,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   }).catch(() => {});
               } catch (e) {}
           }
+          // เริ่มทำอาหารจริง → ตัดสต็อกตามสูตรอัตโนมัติ (ครั้งเดียวต่อออเดอร์ ทำเบื้องหลัง)
+          if (status === 'cooking') {
+              try { deductStockForOrder(orderId); } catch (e) { console.error(e); }
+          }
       }
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
   };
@@ -3722,6 +3739,194 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   // ======================================================================
+  // RECIPE COSTING + AUTO STOCK DEDUCTION + P&L (จาก Pizza Damac Cost.xlsx)
+  // สูตรต่อเมนูอยู่ใน menu_recipes — ต้นทุนคิดสดจากราคา/หน่วยของสต็อกปัจจุบัน
+  // ตัดสต็อกอัตโนมัติเมื่อออเดอร์เข้าสถานะ "เริ่มทำ" (cooking) ครั้งเดียวต่อออเดอร์
+  // ======================================================================
+  const [menuRecipes, setMenuRecipes] = useState<Record<string, MenuRecipe>>({});
+  const [costSettings, setCostSettings] = useState<CostSettings>({ overheadLines: [] });
+
+  const fetchCostingData = async () => {
+      if (!isSupabaseConfigured) return;
+      try {
+          const [recRes, cfgRes] = await Promise.all([
+              supabase.from('menu_recipes').select('*'),
+              supabase.from('cost_settings').select('*').eq('id', 1).maybeSingle()
+          ]);
+          if (recRes.data) {
+              const map: Record<string, MenuRecipe> = {};
+              recRes.data.forEach((r: any) => {
+                  map[r.menu_item_id] = {
+                      menuItemId: r.menu_item_id,
+                      lines: Array.isArray(r.lines) ? r.lines : [],
+                      note: r.note || undefined,
+                      updatedAt: r.updated_at
+                  };
+              });
+              setMenuRecipes(map);
+          }
+          if (cfgRes.data) {
+              setCostSettings({
+                  overheadLines: Array.isArray(cfgRes.data.overhead_lines) ? cfgRes.data.overhead_lines : [],
+                  workingDays: Number(cfgRes.data.working_days) || 30
+              });
+          }
+      } catch (e) { console.error('Costing fetch failed', e); }
+  };
+
+  useEffect(() => {
+      if (isAdminLoggedIn && isSupabaseConfigured) { fetchCostingData(); }
+  }, [isAdminLoggedIn]);
+
+  const saveRecipe = async (menuItemId: string, lines: RecipeLine[], note?: string): Promise<boolean> => {
+      const email = await staffEmail();
+      const cleaned = (lines || []).filter(l => l && l.name && Number(l.qty) > 0);
+      const { error } = await supabase.from('menu_recipes').upsert({
+          menu_item_id: menuItemId,
+          lines: cleaned,
+          note: note ?? menuRecipes[menuItemId]?.note ?? null,
+          updated_at: new Date().toISOString(),
+          updated_by: email
+      });
+      if (error) { alert('บันทึกสูตรไม่สำเร็จ: ' + error.message); return false; }
+      setMenuRecipes(prev => ({ ...prev, [menuItemId]: { menuItemId, lines: cleaned, note } }));
+      return true;
+  };
+
+  const deleteRecipe = async (menuItemId: string) => {
+      const { error } = await supabase.from('menu_recipes').delete().eq('menu_item_id', menuItemId);
+      if (error) { alert('ลบสูตรไม่สำเร็จ: ' + error.message); return; }
+      setMenuRecipes(prev => {
+          const next = { ...prev };
+          delete next[menuItemId];
+          return next;
+      });
+  };
+
+  const saveCostSettings = async (cfg: CostSettings): Promise<boolean> => {
+      const { error } = await supabase.from('cost_settings').upsert({
+          id: 1,
+          overhead_lines: cfg.overheadLines || [],
+          working_days: Math.max(1, Math.min(31, Number(cfg.workingDays) || 30)),
+          updated_at: new Date().toISOString()
+      });
+      if (error) { alert('บันทึกต้นทุนแฝงไม่สำเร็จ: ' + error.message); return false; }
+      setCostSettings(cfg);
+      return true;
+  };
+
+  // ต้นทุนวัตถุดิบต่อ 1 หน่วยของเมนู (คิดสดจากราคาสต็อกปัจจุบัน) — null = ยังไม่มีสูตร
+  const recipeFoodCost = (menuItemId: string): number | null => {
+      const r = menuRecipes[menuItemId];
+      if (!r || !r.lines || r.lines.length === 0) return null;
+      let total = 0;
+      for (const l of r.lines) {
+          if (l.stockItemId) {
+              const s = stockItems.find(x => x.id === l.stockItemId);
+              total += Number(l.qty) * (s && s.costPerUnit !== undefined ? Number(s.costPerUnit) : 0);
+          } else {
+              total += Number(l.fixedCost) || 0;
+          }
+      }
+      return Math.round(total * 100) / 100;
+  };
+
+  // รวมต้นทุน + ปริมาณที่ต้องตัดสต็อกของออเดอร์ (รองรับชุดคอมโบผ่าน subItems)
+  const computeOrderCogs = (order: Order): { amount: number; deductions: { stockItemId: string; qty: number }[] } => {
+      const dedMap: Record<string, number> = {};
+      let amount = 0;
+      const addRecipe = (menuItemId: string, times: number) => {
+          const r = menuRecipes[menuItemId];
+          if (!r || !r.lines) return;
+          for (const l of r.lines) {
+              if (l.stockItemId) {
+                  const s = stockItems.find(x => x.id === l.stockItemId);
+                  const unitCost = s && s.costPerUnit !== undefined ? Number(s.costPerUnit) : 0;
+                  amount += Number(l.qty) * times * unitCost;
+                  dedMap[l.stockItemId] = (dedMap[l.stockItemId] || 0) + Number(l.qty) * times;
+              } else {
+                  amount += (Number(l.fixedCost) || 0) * times;
+              }
+          }
+      };
+      for (const item of (order.items || [])) {
+          const qty = Number(item.quantity) || 1;
+          if (item.subItems && item.subItems.length > 0) {
+              // ชุดคอมโบ: คิดตามสูตรของพิซซ่าลูกแต่ละถาด
+              for (const sub of item.subItems) addRecipe(sub.pizzaId, qty);
+          } else {
+              addRecipe(item.pizzaId, qty);
+          }
+      }
+      return {
+          amount: Math.round(amount * 100) / 100,
+          deductions: Object.entries(dedMap).map(([stockItemId, qty]) => ({ stockItemId, qty }))
+      };
+  };
+
+  // ตัดสต็อกอัตโนมัติ ครั้งเดียวต่อออเดอร์ — atomic claim ที่ DB กันตัดซ้ำ
+  // (เผื่อทั้ง POS และจอครัวกด "เริ่มทำ" พร้อมกัน)
+  const deductStockForOrder = async (orderId: string) => {
+      try {
+          if (!isSupabaseConfigured || !isAdminLoggedIn) return;
+          const order = orders.find(o => o.id === orderId);
+          if (!order || order.stockDeducted) return;
+          const { amount, deductions } = computeOrderCogs(order);
+          if (deductions.length === 0 && amount === 0) return; // ไม่มีสูตร — ข้ามเงียบๆ
+
+          // 1) claim the order atomically (only one device wins)
+          const { data: claimed, error: claimErr } = await supabase
+              .from('orders')
+              .update({ stock_deducted: true, cogs_amount: amount })
+              .eq('id', orderId)
+              .eq('stock_deducted', false)
+              .select('id');
+          if (claimErr || !claimed || claimed.length === 0) return; // แพ้ race หรือตัดไปแล้ว
+
+          // 2) build + insert 'sale' movements and update stock quantities
+          const email = await staffEmail();
+          const nowIso = new Date().toISOString();
+          const movements: any[] = [];
+          const updates: { id: string; qty: number }[] = [];
+          const cogsLines: any[] = [];
+          deductions.forEach((d, idx) => {
+              const item = stockItems.find(x => x.id === d.stockItemId);
+              if (!item) return;
+              const before = Number(item.currentQty);
+              const after = before - d.qty; // อนุญาตติดลบ = สัญญาณว่านับจริงต่ำกว่าระบบ
+              movements.push({
+                  id: `mov_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+                  item_id: item.id, type: 'sale',
+                  qty: -d.qty, qty_before: before, qty_after: after,
+                  unit_cost: item.costPerUnit ?? null,
+                  total_cost: item.costPerUnit !== undefined ? Math.round(d.qty * Number(item.costPerUnit) * 100) / 100 : null,
+                  note: `ออเดอร์ #${String(orderId).slice(-6)}`,
+                  created_by: email, created_at: nowIso
+              });
+              updates.push({ id: item.id, qty: after });
+              cogsLines.push({ stockItemId: item.id, name: item.name, qty: d.qty, unit: item.unit, unitCost: item.costPerUnit ?? 0 });
+          });
+          if (movements.length > 0) {
+              const { error: movErr } = await supabase.from('stock_movements').insert(movements);
+              if (!movErr) {
+                  await Promise.all(updates.map(u =>
+                      supabase.from('stock_items').update({ current_qty: u.qty, updated_at: nowIso }).eq('id', u.id)
+                  ));
+              }
+          }
+          await supabase.from('orders').update({ cogs_lines: cogsLines }).eq('id', orderId);
+
+          // 3) refresh local state
+          setStockItems(prev => prev.map(x => {
+              const u = updates.find(uu => uu.id === x.id);
+              return u ? { ...x, currentQty: u.qty } : x;
+          }));
+          setOrders(prev => prev.map(o => o.id === orderId ? { ...o, stockDeducted: true, cogsAmount: amount } : o));
+          fetchStockData();
+      } catch (e) { console.error('Stock deduction failed', e); }
+  };
+
+  // ======================================================================
   // NEW-DEPLOY DETECTION — POS/Kitchen tablets stay open for days and keep
   // running old code; poll /api/version and prompt a refresh when it changes
   // ======================================================================
@@ -3884,6 +4089,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       stockItems, stockMovements, lowStockItems, fetchStockData,
       addStockItem, updateStockItem, deleteStockItem,
       recordStockCount, receiveStock, adjustStock,
+      menuRecipes, costSettings, fetchCostingData, saveRecipe, deleteRecipe, saveCostSettings,
+      recipeFoodCost, computeOrderCogs,
       newVersionAvailable,
       btDevice, setBtDevice,
       btCharacteristic, setBtCharacteristic,

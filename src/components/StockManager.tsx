@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { StockItem, Supplier } from '../../types';
+import { RecipeCostTab, ProfitLossTab } from './CostingCenter';
 
 // ---------------------------------------------------------------------------
 // STOCK MANAGER — วัตถุดิบหลัก 10-20 รายการ / นับมือเช้า-เย็น / จดของเข้า
@@ -13,10 +14,10 @@ import { StockItem, Supplier } from '../../types';
 // ---------------------------------------------------------------------------
 
 const CATEGORY_TH: Record<string, string> = {
-  dough: '🍞 แป้ง/โดว์', cheese: '🧀 ชีส', sauce: '🥫 ซอส', meat: '🥓 เนื้อสัตว์',
+  base: '🧑‍🍳 ของทำเอง (โดว์/ซอส/มอส)', dough: '🍞 แป้ง/โดว์', cheese: '🧀 ชีส', sauce: '🥫 ซอส', meat: '🥓 เนื้อสัตว์',
   vegetable: '🥬 ผัก/ผลไม้', packaging: '📦 บรรจุภัณฑ์', drink: '🥤 เครื่องดื่ม', other: '📋 อื่นๆ'
 };
-const CATEGORY_ORDER = ['dough', 'cheese', 'sauce', 'meat', 'vegetable', 'packaging', 'drink', 'other'];
+const CATEGORY_ORDER = ['base', 'dough', 'cheese', 'sauce', 'meat', 'vegetable', 'packaging', 'drink', 'other'];
 const UNITS = ['กก.', 'กรัม', 'ถุง', 'แพ็ค', 'กล่อง', 'กระป๋อง', 'ขวด', 'ใบ', 'ชิ้น', 'ลูก', 'ซอง'];
 
 const inputCls = 'w-full text-sm border border-gray-200 rounded-xl px-3 py-2 outline-none focus:border-brand-500';
@@ -41,6 +42,8 @@ export const StockManager: React.FC = () => {
 
   const [showInactive, setShowInactive] = useState(false);
   const [busy, setBusy] = useState(false);
+  // sub-tabs: สต็อก | สูตร & ต้นทุน | กำไร/ขาดทุน (ระบบ costing จาก Excel ของ Oat)
+  const [section, setSection] = useState<'stock' | 'recipes' | 'pnl'>('stock');
 
   // --- modals ---
   const [countSession, setCountSession] = useState<null | 'morning' | 'evening'>(null);
@@ -161,6 +164,25 @@ export const StockManager: React.FC = () => {
   return (
     <div className="flex-1 bg-gray-100 p-4 sm:p-6 overflow-y-auto pb-24 lg:pb-6 font-sans">
       <div className="max-w-6xl mx-auto space-y-5">
+
+        {/* ===== SUB-TAB BAR: สต็อก / สูตร&ต้นทุน / กำไรขาดทุน ===== */}
+        <div className="flex gap-1.5 bg-white border border-gray-200 rounded-2xl p-1.5 shadow-sm sticky top-0 z-20">
+          {([
+            { id: 'stock', label: th ? '📦 สต็อก & Supplier' : '📦 Stock' },
+            { id: 'recipes', label: th ? '🧾 สูตร & ต้นทุน' : '🧾 Recipes & Cost' },
+            { id: 'pnl', label: th ? '📊 กำไร/ขาดทุน' : '📊 P&L' }
+          ] as { id: 'stock' | 'recipes' | 'pnl'; label: string }[]).map(t => (
+            <button key={t.id} onClick={() => setSection(t.id)}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-black transition ${section === t.id ? 'bg-gray-900 text-white shadow' : 'text-gray-500 hover:bg-gray-100'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {section === 'recipes' && <RecipeCostTab />}
+        {section === 'pnl' && <ProfitLossTab />}
+
+        {section === 'stock' && (<>
 
         {/* ===== HEADER ===== */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 border-b border-gray-200 pb-4">
@@ -298,6 +320,8 @@ export const StockManager: React.FC = () => {
             </div>
           )}
         </div>
+
+        </>)}
       </div>
 
       {/* ============ COUNT MODAL ============ */}
