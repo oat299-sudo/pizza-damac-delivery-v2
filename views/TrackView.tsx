@@ -3,7 +3,7 @@ import { useStore } from '../context/StoreContext';
 import { Package, Truck, CheckCircle, ExternalLink, ArrowLeft, RefreshCw, Download } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { generatePromptPayPayload } from '../utils/promptpay';
-import { saveQrHiRes } from '../utils/saveImage';
+import ThaiQRCard from '../src/components/ThaiQRCard';
 
 export const TrackView: React.FC = () => {
     const { trackingOrderId, orders, navigateTo, language, t, storeSettings } = useStore();
@@ -42,14 +42,7 @@ export const TrackView: React.FC = () => {
         && order.status !== 'completed'
         && order.status !== 'cancelled';
 
-    // บันทึกรูป QR แบบใช้ได้จริงทุกเครื่อง (แชร์ชีท → ดาวน์โหลด → กดค้างที่รูป)
-    const handleDownloadTrackQR = async () => {
-        try {
-            const canvas = document.getElementById('promptpay-qr-track') as HTMLCanvasElement | null;
-            if (!canvas) return;
-            await saveQrHiRes(canvas, `PizzaDamac-Payment-${String(order.id).slice(-6)}.jpg`, language === 'th' ? 'th' : 'en');
-        } catch (e) { console.error(e); }
-    };
+    // การ์ด Thai QR Payment (ThaiQRCard) มีปุ่มบันทึกรูปในตัว — ได้การ์ดแบบทางการเต็มใบ
 
     return (
         <div className="min-h-screen bg-gray-50 pb-20">
@@ -73,20 +66,18 @@ export const TrackView: React.FC = () => {
                             <span className="font-extrabold text-sm flex items-center gap-1.5">🍕 PIZZA DAMAC • PromptPay</span>
                             <span className="text-xs font-bold bg-white/20 rounded px-2 py-0.5">#{String(order.id).slice(-4)}</span>
                         </div>
-                        <div className="p-4 flex items-center gap-4">
-                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-2 shrink-0">
-                                <QRCodeCanvas id="promptpay-qr-track" value={generatePromptPayPayload(storeSettings.promptPayNumber || '0994979199', order.totalAmount)} size={110} level="M" includeMargin={true} />
-                            </div>
-                            <div className="min-w-0">
-                                <p className="text-xs font-bold text-gray-400 uppercase">{language === 'th' ? 'ยอดชำระ' : 'Amount Due'}</p>
-                                <p className="font-black text-2xl text-brand-600 mb-1">฿{order.totalAmount}</p>
-                                <p className="text-[11px] text-gray-400 leading-snug mb-2">
-                                    {language === 'th' ? 'สแกนด้วยแอปธนาคาร • ถ้าโอนแล้ว ไม่ต้องชำระซ้ำ ส่งสลิปทาง LINE ร้านได้เลย' : 'Scan with your banking app • Already paid? Just send the slip via our LINE OA'}
-                                </p>
-                                <button onClick={handleDownloadTrackQR} className="text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200 rounded-lg px-3 py-1.5 transition flex items-center gap-1">
-                                    <Download size={12}/> {language === 'th' ? 'บันทึกรูป QR' : 'Save QR'}
-                                </button>
-                            </div>
+                        <div className="p-4">
+                            <ThaiQRCard
+                                qrValue={generatePromptPayPayload(storeSettings.promptPayNumber || '0994979199', order.totalAmount)}
+                                amount={Number(order.totalAmount)}
+                                canvasId="promptpay-qr-track"
+                                refNo={String(order.id).slice(-4)}
+                                size={160}
+                                language={language}
+                            />
+                            <p className="text-[11px] text-gray-400 leading-snug mt-3 text-center">
+                                {language === 'th' ? 'สแกนด้วยแอปธนาคาร • ถ้าโอนแล้ว ไม่ต้องชำระซ้ำ ส่งสลิปทาง LINE ร้านได้เลย' : 'Scan with your banking app • Already paid? Just send the slip via our LINE OA'}
+                            </p>
                         </div>
                     </div>
                 )}

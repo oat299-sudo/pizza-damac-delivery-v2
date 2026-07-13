@@ -111,3 +111,140 @@ export const saveQrHiRes = async (
   ctx.drawImage(sourceCanvas, 80, 80, 640, 640);
   return saveCanvasImage(off, filename, lang, 'image/jpeg');
 };
+
+// ---------------------------------------------------------------------------
+// THAI QR PAYMENT CARD — วาดการ์ดสไตล์ทางการ (แถบ THAI QR PAYMENT + โลโก้
+// PromptPay + QR พร้อมโลโก้ D กลาง + ยอดเงินสีส้ม + วันหมดอายุ) แล้วบันทึก
+// ---------------------------------------------------------------------------
+const ORANGE = '#EA580C';
+
+const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+};
+
+// โลโก้ D กลาง QR (ขอบขาวช่วยให้ QR อ่านง่าย) — วาดสดบน canvas ให้คมทุกขนาด
+const drawDBadge = (ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) => {
+  const half = size / 2;
+  ctx.save();
+  // ขอบขาวรอบนอก
+  roundRect(ctx, cx - half - size * 0.08, cy - half - size * 0.08, size * 1.16, size * 1.16, size * 0.3);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  // กล่องส้ม
+  roundRect(ctx, cx - half, cy - half, size, size, size * 0.24);
+  ctx.fillStyle = ORANGE;
+  ctx.fill();
+  // ตัว D
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `900 ${Math.round(size * 0.62)}px Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('D', cx, cy + size * 0.03);
+  ctx.restore();
+};
+
+export interface PromptPayCardOpts {
+  amountText: string;   // เช่น "฿135.00"
+  expiryText: string;   // เช่น "QR นี้มีอายุถึง 12 ก.ค. 2569, 23:59"
+  refText?: string;     // เช่น "ออเดอร์ #1234 • pizzadamac.com"
+}
+
+export const composePromptPayCard = (sourceCanvas: HTMLCanvasElement, opts: PromptPayCardOpts): HTMLCanvasElement => {
+  const W = 800, H = 1000;
+  const off = document.createElement('canvas');
+  off.width = W; off.height = H;
+  const ctx = off.getContext('2d');
+  if (!ctx) return sourceCanvas;
+
+  // พื้นขาว
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  // ===== แถบหัว THAI QR PAYMENT =====
+  ctx.fillStyle = '#F4F4F5';
+  ctx.fillRect(0, 0, W, 104);
+  // โลโก้ (กล่องส้มมุมมน + ช่อง QR ขาวสไตล์ Thai QR)
+  const gx = 250, gy = 22, gs = 60;
+  roundRect(ctx, gx, gy, gs, gs, 14);
+  ctx.fillStyle = ORANGE;
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  const cell = gs / 5;
+  [[1, 1], [3, 1], [1, 3]].forEach(([cxi, cyi]) => {
+    ctx.fillRect(gx + cxi * cell - 2, gy + cyi * cell - 2, cell + 4, cell + 4);
+  });
+  ctx.fillStyle = ORANGE;
+  ctx.fillRect(gx + 3 * cell + 2, gy + 3 * cell + 2, cell - 4, cell - 4);
+  // ตัวหนังสือ THAI QR / PAYMENT
+  ctx.fillStyle = ORANGE;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '900 34px Arial, sans-serif';
+  ctx.fillText('THAI QR', gx + gs + 18, 50);
+  ctx.font = '900 30px Arial, sans-serif';
+  ctx.fillText('PAYMENT', gx + gs + 18, 84);
+
+  // ===== กล่องโลโก้ PromptPay =====
+  const pbW = 250, pbH = 66, pbX = (W - pbW) / 2, pbY = 138;
+  roundRect(ctx, pbX, pbY, pbW, pbH, 10);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = ORANGE;
+  ctx.stroke();
+  ctx.textAlign = 'right';
+  ctx.fillStyle = ORANGE;
+  ctx.font = 'italic 700 16px Tahoma, sans-serif';
+  ctx.fillText('พร้อมเพย์', pbX + pbW - 14, pbY + 24);
+  ctx.textAlign = 'center';
+  ctx.font = '800 34px Arial, sans-serif';
+  ctx.fillStyle = '#3F3F46';
+  const promptW = ctx.measureText('Prompt').width;
+  const payW = (() => { ctx.font = '800 34px Arial, sans-serif'; return ctx.measureText('Pay').width; })();
+  const totalW = promptW + payW;
+  ctx.textAlign = 'left';
+  ctx.fillText('Prompt', pbX + (pbW - totalW) / 2, pbY + 52);
+  ctx.fillStyle = ORANGE;
+  ctx.fillText('Pay', pbX + (pbW - totalW) / 2 + promptW, pbY + 52);
+
+  // ===== QR + โลโก้ D =====
+  const qs = 460, qx = (W - qs) / 2, qy = 236;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(sourceCanvas, qx, qy, qs, qs);
+  ctx.imageSmoothingEnabled = true;
+  drawDBadge(ctx, W / 2, qy + qs / 2, 96);
+
+  // ===== ยอดเงิน =====
+  ctx.textAlign = 'center';
+  ctx.fillStyle = ORANGE;
+  ctx.font = '900 52px Tahoma, Arial, sans-serif';
+  ctx.fillText(`ทั้งหมด: ${opts.amountText}`, W / 2, qy + qs + 84);
+
+  // ===== หมดอายุ + อ้างอิง =====
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = '600 26px Tahoma, sans-serif';
+  ctx.fillText(opts.expiryText, W / 2, qy + qs + 138);
+  if (opts.refText) {
+    ctx.fillStyle = ORANGE;
+    ctx.font = '800 26px Tahoma, sans-serif';
+    ctx.fillText(opts.refText, W / 2, qy + qs + 178);
+  }
+  return off;
+};
+
+// บันทึกการ์ด Thai QR Payment (ใช้ระบบ save 3 ชั้นเดิม — แชร์ชีท/ดาวน์โหลด/กดค้าง)
+export const savePromptPayCard = async (
+  sourceCanvas: HTMLCanvasElement,
+  opts: PromptPayCardOpts,
+  filename: string,
+  lang: 'th' | 'en' = 'th'
+): Promise<SaveImageResult> => {
+  const card = composePromptPayCard(sourceCanvas, opts);
+  return saveCanvasImage(card, filename, lang, 'image/jpeg');
+};

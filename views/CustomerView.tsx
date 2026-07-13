@@ -8,6 +8,7 @@ import { calculateDistanceKm, reverseGeocode } from '../utils/geo';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { generatePromptPayPayload } from '../utils/promptpay';
 import { saveQrHiRes } from '../utils/saveImage';
+import ThaiQRCard from '../src/components/ThaiQRCard';
 import DeliveryMap from '../src/components/DeliveryMap';
 import { getLalamoveQuote, fetchRealLalamoveQuote } from '../services/lalamoveService';
 
@@ -1852,19 +1853,14 @@ export const CustomerView: React.FC = () => {
                                   </div>
                               ) : (
                                   <>
-                                      <h4 className="text-xs font-bold text-gray-600 mb-2">{language === 'th' ? 'สแกนเพื่อชำระเงิน' : 'Scan via Bank App'}</h4>
-                                      <div className="p-2 border border-gray-100 rounded-lg bg-white inline-block">
-                                        <QRCodeCanvas id="promptpay-qr-tracker" value={generatePromptPayPayload(storeSettings.promptPayNumber || DEFAULT_STORE_SETTINGS.promptPayNumber!, activeOrder.totalAmount)} size={150} level="M" includeMargin={true} />
-                                      </div>
-                                      <button 
-                                          type="button"
-                                          onClick={() => handleDownloadQR('promptpay-qr-tracker', activeOrder.id.slice(-4))}
-                                          className="mt-2 mb-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white hover:bg-brand-700 active:scale-95 text-[11px] font-bold rounded-lg transition shadow-xs w-full max-w-[160px]"
-                                      >
-                                          <Download size={12} className="text-white"/>
-                                          <span>{language === 'th' ? 'บันทึกรูป QR ลงเครื่อง' : 'Save QR Image'}</span>
-                                      </button>
-                                      <p className="text-brand-600 font-extrabold text-lg mt-1">฿{activeOrder.totalAmount}</p>
+                                      <ThaiQRCard
+                                          qrValue={generatePromptPayPayload(storeSettings.promptPayNumber || DEFAULT_STORE_SETTINGS.promptPayNumber!, activeOrder.totalAmount)}
+                                          amount={Number(activeOrder.totalAmount)}
+                                          canvasId="promptpay-qr-tracker"
+                                          refNo={String(activeOrder.id).slice(-4)}
+                                          size={150}
+                                          language={language}
+                                      />
                                       <p className="text-[10px] text-gray-400 text-center mt-2 leading-tight">
                                           {language === 'th' ? 'ชำระแล้วให้ส่งสลิปมาที่ Line ร้าน' : 'After payment, send slip to our Line'}
                                       </p>
@@ -3791,23 +3787,20 @@ export const CustomerView: React.FC = () => {
                         </p>
                     </div>
 
-                    <div className="p-6 text-center">
-                        <p className="text-gray-500 mb-4 text-sm font-bold">{language === 'th' ? 'สแกน QR นี้ด้วยแอปธนาคารเพื่อชำระเงิน' : 'Scan this QR with your banking app'}</p>
+                    <div className="p-5 text-center">
+                        <p className="text-gray-500 mb-3 text-sm font-bold">{language === 'th' ? 'สแกน QR นี้ด้วยแอปธนาคารเพื่อชำระเงิน' : 'Scan this QR with your banking app'}</p>
 
-                        <div className="flex flex-col items-center justify-center p-4 bg-gray-50 rounded-xl mb-4 border-2 border-brand-200 mx-auto w-fit relative">
-                             <QRCodeCanvas id="promptpay-qr-modal" value={generatePromptPayPayload(storeSettings.promptPayNumber || DEFAULT_STORE_SETTINGS.promptPayNumber!, qrAmount)} size={200} level="M" includeMargin={true} />
-                             <div className="text-[10px] font-black text-gray-400 mt-1 tracking-widest uppercase">Pizza Damac Nonthaburi</div>
-                             <button
-                                 type="button"
-                                 onClick={() => handleDownloadQR('promptpay-qr-modal', 'Payment')}
-                                 className="mt-2 flex items-center justify-center gap-1.5 px-4 py-2 bg-brand-600 text-white hover:bg-brand-700 active:scale-95 text-xs font-bold rounded-lg transition shadow-md w-full"
-                             >
-                                 <Download size={13} className="text-white"/>
-                                 <span>{language === 'th' ? 'บันทึกรูป QR ลงเครื่อง' : 'Save QR Image'}</span>
-                             </button>
+                        {/* การ์ด THAI QR PAYMENT (โลโก้ D กลาง QR + ยอด + วันหมดอายุ — save ได้เป็นการ์ดเต็ม) */}
+                        <div className="mb-4">
+                            <ThaiQRCard
+                                qrValue={generatePromptPayPayload(storeSettings.promptPayNumber || DEFAULT_STORE_SETTINGS.promptPayNumber!, qrAmount)}
+                                amount={qrAmount}
+                                canvasId="promptpay-qr-modal"
+                                refNo={String(localOrderId || '').slice(-4)}
+                                size={190}
+                                language={language}
+                            />
                         </div>
-
-                        <div className="text-3xl font-extrabold text-brand-600 mb-4">฿{qrAmount}</div>
 
                         <p className="text-xs text-gray-400 mb-5 leading-relaxed">
                             {language === 'th' ? 'โอนแล้วกดปุ่มด้านล่างเพื่อติดตามออเดอร์ • ส่งสลิปได้ทาง LINE ของร้าน' : 'After paying, tap below to track your order • You can send the slip via our LINE OA'}
