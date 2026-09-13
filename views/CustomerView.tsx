@@ -10,6 +10,7 @@ import { generatePromptPayPayload } from '../utils/promptpay';
 import { saveQrHiRes } from '../utils/saveImage';
 import ThaiQRCard from '../src/components/ThaiQRCard';
 import DeliveryMap from '../src/components/DeliveryMap';
+import AppVersionBadge from '../src/components/AppVersionBadge';
 import { getLalamoveQuote, fetchRealLalamoveQuote } from '../services/lalamoveService';
 
 // ... (VideoCard Component remains unchanged) ...
@@ -1776,6 +1777,7 @@ export const CustomerView: React.FC = () => {
                     <button onClick={() => navigateTo('pos')} className="hover:text-white transition flex items-center gap-1"><Lock size={10}/> POS System</button>
                 </div>
                 <p>&copy; 2024 Pizza Damac. All rights reserved.</p>
+                <p className="mt-1"><AppVersionBadge /></p>
             </div>
         </footer>
 

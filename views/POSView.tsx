@@ -7,6 +7,7 @@ import { CATEGORIES, EXPENSE_CATEGORIES, PRESET_EXPENSES } from '../constants';
 import { generatePromptPayPayload } from '../utils/promptpay';
 import { calculateDistanceKm } from '../utils/geo';
 import LalamoveDispatchPanel from '../src/components/LalamoveDispatchPanel';
+import AppVersionBadge from '../src/components/AppVersionBadge';
 import { LalamoveSettingsCard } from '../src/components/LalamoveSettingsCard';
 import PromoBoard from '../src/components/PromoBoard';
 import StockManager from '../src/components/StockManager';
@@ -2507,6 +2508,7 @@ export const POSView: React.FC = () => {
                     </button>
                     <button onClick={() => { playClickSound(); toggleLanguage(); }} className="text-xs font-bold bg-gray-800 text-gray-300 w-12 h-12 rounded-full flex items-center justify-center hover:bg-gray-700 active:scale-95 transition">{language.toUpperCase()}</button>
                     <button onClick={() => { playAlertSound(); adminLogout(); }} className="p-4 text-red-400 hover:bg-gray-800 rounded-xl transition cursor-pointer" title={language === 'th' ? 'ออกจากระบบ' : 'Logout'}><LogOut size={28} /></button>
+                    <div className="text-gray-500 text-center leading-none pb-1"><AppVersionBadge /></div>
                 </div>
             </aside>
             
