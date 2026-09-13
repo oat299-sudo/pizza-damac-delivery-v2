@@ -2636,6 +2636,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                       orderHistory: row.order_history || [],
                       pdpaAccepted: row.pdpa_accepted,
                       savedAddresses: row.saved_addresses || [],
+                      lineUserId: row.line_user_id || null,
+                      staffNote: row.staff_note || '',
+                      tags: Array.isArray(row.tags) ? row.tags : [],
                       coupons: Array.isArray(row.coupons) ? row.coupons : (backupCoupons.length > 0 ? backupCoupons : [])
                   };
               });
