@@ -15,6 +15,13 @@ _ยังไม่มี — รายการที่แก้แล้ว�
 
 ---
 
+## [1.2.1] — 2026-09-13
+
+### Fixed
+- ป้ายเวอร์ชันใน POS ย้ายจากใต้ปุ่มออกจากระบบ (หลุดจอบนจอเตี้ย) ไปอยู่ใต้โลโก้ร้านมุมบนซ้าย — มองเห็นเสมอ; เพิ่มช่องว่างข้อความ `v1.2.1 · 00070-xxx`
+
+---
+
 ## [1.2.0] — 2026-09-13
 
 ### Added
@@ -88,7 +95,8 @@ _เวอร์ชันฐาน: สรุปทุกอย่างที�
 
 ---
 
-[Unreleased]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.2.1
 [1.2.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.2.0
 [1.1.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.1.0
 [1.0.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.0.0
