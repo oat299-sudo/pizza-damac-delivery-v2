@@ -15,6 +15,13 @@ _ยังไม่มี — รายการที่แก้แล้ว�
 
 ---
 
+## [1.4.1] — 2026-09-13
+
+### Fixed
+- **HOTFIX: หน้าเว็บขาว (ReferenceError: getGpRate is not defined)** หลัง deploy v1.4.0 ประมาณ 5 นาที — ฟังก์ชัน `getGpRate` ถูกวางผิดตำแหน่งใน `context/StoreContext.tsx` (หลุดเข้าไปในตัวเริ่มค่าของ `useState`) ทำให้ทั้งแอปโหลดไม่ขึ้น; ย้ายออกมาที่ระดับ Provider แล้ว
+
+---
+
 ## [1.4.0] — 2026-09-13
 
 ### Added
@@ -134,7 +141,8 @@ _เวอร์ชันฐาน: สรุปทุกอย่างที�
 
 ---
 
-[Unreleased]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.4.1
 [1.4.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.4.0
 [1.3.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.3.0
 [1.2.1]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.2.1
