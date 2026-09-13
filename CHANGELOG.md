@@ -15,6 +15,20 @@ _ยังไม่มี — รายการที่แก้แล้ว�
 
 ---
 
+## [1.2.0] — 2026-09-13
+
+### Added
+- **ป้ายเวอร์ชันบนเว็บ** — เห็นได้ทันทีว่า pizzadamac.com รันเวอร์ชันไหน ไม่ต้องเดาว่าอัปโหลดแล้วหรือยัง
+  - แสดง 3 จุด: ท้ายหน้าลูกค้า (ใต้ © Pizza Damac), หน้าล็อกอิน Staff Access, และแถบเมนูซ้ายของ POS (ใต้ปุ่มออกจากระบบ)
+  - รูปแบบ `v1.2.0 · 00067-xxx` = เลขเวอร์ชันจาก package.json + Cloud Run revision ล่าสุด (วางเมาส์ดูชื่อ revision เต็ม)
+  - คอมโพเนนต์ใหม่ `src/components/AppVersionBadge.tsx` อ่านค่าจาก `GET /api/version`
+  - ไฟล์ที่แก้: `App.tsx`, `views/CustomerView.tsx`, `views/POSView.tsx`
+
+### Changed
+- ตกลงกติกา: ทุกครั้งที่แก้โค้ด Claude จะขึ้น GitHub ให้ครบชุด (CHANGELOG → เลขเวอร์ชัน → commit → Release → ตรวจ /api/version) โดยไม่ต้องสั่งซ้ำ
+
+---
+
 ## [1.1.0] — 2026-09-13
 
 ### Fixed
@@ -74,6 +88,7 @@ _เวอร์ชันฐาน: สรุปทุกอย่างที�
 
 ---
 
-[Unreleased]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.2.0
 [1.1.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.1.0
 [1.0.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.0.0

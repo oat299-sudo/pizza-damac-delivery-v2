@@ -7,6 +7,7 @@ import { POSView } from './views/POSView';
 import { TrackView } from './views/TrackView';
 import { Lock, ArrowLeft, User, Key, AlertTriangle } from 'lucide-react';
 import { isSupabaseConfigured } from './services/supabaseClient';
+import AppVersionBadge from './src/components/AppVersionBadge';
 
 const MainLayout = () => {
   const { currentView, navigateTo, isAdminLoggedIn, adminLogin, t } = useStore();
@@ -110,6 +111,7 @@ const MainLayout = () => {
             >
               <ArrowLeft size={16} /> {t('backToHome')}
             </button>
+            <div className="mt-3 text-gray-400"><AppVersionBadge /></div>
           </div>
         </div>
       </div>
