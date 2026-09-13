@@ -65,7 +65,12 @@ async function startServer() {
   // "refresh to update" prompt (fixes: stale tab kept running old code for days).
   app.get("/api/version", (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ revision: process.env.K_REVISION || 'dev' });
+    res.json({
+      revision: process.env.K_REVISION || 'dev',
+      // App version from package.json (npm injects npm_package_version on `npm start`).
+      // Bump it + add a CHANGELOG.md entry on every release — see VERSIONING.md.
+      version: process.env.npm_package_version || 'unknown'
+    });
   });
 
   // ---------------- LINE Official Account integration ----------------
