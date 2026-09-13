@@ -1804,13 +1804,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // --- Store Settings State (From DB + Local Storage Backup) ---
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
-  // Platform GP rate (fraction). Prefers the editable value in store_settings.gp_rates, falls back to constants.
-  const getGpRate = (source: OrderSource | string | undefined): number => {
-      const key = (source || 'store') as OrderSource;
-      const custom = storeSettings?.gpRates?.[key];
-      if (typeof custom === 'number' && !isNaN(custom)) return Math.min(1, Math.max(0, custom));
-      return (GP_RATES as any)[key] || 0;
-  };
       if (typeof window !== 'undefined') {
           const saved = localStorage.getItem('damac_store_settings');
           if (saved) {
@@ -1820,6 +1813,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
       return DEFAULT_STORE_SETTINGS;
   });
+
+  // Platform GP rate (fraction). Prefers the editable value in store_settings.gp_rates, falls back to constants.
+  const getGpRate = (source: OrderSource | string | undefined): number => {
+      const key = (source || 'store') as OrderSource;
+      const custom = storeSettings?.gpRates?.[key];
+      if (typeof custom === 'number' && !isNaN(custom)) return Math.min(1, Math.max(0, custom));
+      return (GP_RATES as any)[key] || 0;
+  };
 
   // Persist Settings to LocalStorage
   useEffect(() => {
