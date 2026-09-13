@@ -9,6 +9,18 @@ import { calculateDistanceKm } from '../utils/geo';
 import LalamoveDispatchPanel from '../src/components/LalamoveDispatchPanel';
 import AppVersionBadge from '../src/components/AppVersionBadge';
 import CrmCenter from '../src/components/CrmCenter';
+import PlatformGpSettingsCard from '../src/components/PlatformGpSettingsCard';
+
+// v1.4.0 Platform quick mode — channel chips shown in the POS order tab
+const PLATFORM_META: Record<OrderSource, { label: string; emoji: string; active: string }> = {
+    store: { label: 'ร้าน / เว็บ', emoji: '🏠', active: 'bg-gray-900 border-gray-900 text-white' },
+    grab: { label: 'Grab', emoji: '🟢', active: 'bg-green-600 border-green-600 text-white' },
+    lineman: { label: 'LINE MAN', emoji: '🟩', active: 'bg-emerald-600 border-emerald-600 text-white' },
+    robinhood: { label: 'Robinhood', emoji: '🟣', active: 'bg-purple-600 border-purple-600 text-white' },
+    foodpanda: { label: 'Foodpanda', emoji: '🩷', active: 'bg-pink-600 border-pink-600 text-white' },
+    shopeefood: { label: 'ShopeeFood', emoji: '🟠', active: 'bg-orange-500 border-orange-500 text-white' },
+    other: { label: 'อื่นๆ', emoji: '📦', active: 'bg-slate-600 border-slate-600 text-white' }
+};
 import { Users as UsersIcon } from 'lucide-react';
 import { LalamoveSettingsCard } from '../src/components/LalamoveSettingsCard';
 import PromoBoard from '../src/components/PromoBoard';
@@ -71,7 +83,7 @@ const formatOrderDateTime = (dateStr?: string | null, dateStyle: 'short' | 'medi
 
 export const POSView: React.FC = () => {
     const { 
-        menu, addToCart, removeFromCart, cart, cartTotal, clearCart, placeOrder, orders, deleteOrder, updateOrderFields,
+        menu, addToCart, removeFromCart, cart, cartTotal, clearCart, placeOrder, orders, deleteOrder, updateOrderFields, getGpRate,
         updatePizzaPrice, togglePizzaAvailability, addPizza, deletePizza, updatePizza, toggleBestSeller, reorderMenu,
         toppings, addTopping, updateTopping, deleteTopping, updateCartItemQuantity, updateCartItem,
         adminLogout, shopLogo, updateShopLogo,
@@ -99,7 +111,7 @@ export const POSView: React.FC = () => {
     // Unified Tab State
     const [customCP, setCustomCP] = useState<string>("18");
     const [activeTab, setActiveTab] = useState<string>('order');
-    const [salesSubTab, setSalesSubTab] = useState<'orders' | 'daily' | 'expenses' | 'cost_analysis'>('orders');
+    const [salesSubTab, setSalesSubTab] = useState<'orders' | 'daily' | 'monthly' | 'expenses' | 'cost_analysis'>('orders');
     const [selectedPizza, setSelectedPizza] = useState<Pizza | null>(null);
     const [registeredCustomers, setRegisteredCustomers] = useState<any[]>([]);
     const [loadingCustomers, setLoadingCustomers] = useState<boolean>(false);
@@ -1657,7 +1669,7 @@ export const POSView: React.FC = () => {
 
             const success = await placeOrder(posOrderType, {
                 tableNumber: tableNumber || (posOrderType === 'delivery' ? 'Delivery' : 'Walk-in'), 
-                source: orderSource, paymentMethod: paymentMethod, status: 'completed', note: note, deliveryPlatformRef: deliveryPlatformRef,
+                source: orderSource, paymentMethod: orderSource !== 'store' ? 'platform' : paymentMethod, status: 'completed', note: orderSource !== 'store' ? `Paid via ${PLATFORM_META[orderSource]?.label || orderSource} (platform settles)` : note, deliveryPlatformRef: deliveryPlatformRef,
                 isPosOrder: true,
                 customerPhone: posCustomerPhone,
                 customerName: tableNumber || undefined,
@@ -1750,7 +1762,7 @@ export const POSView: React.FC = () => {
             subtotal: subtotal,
             vat: vatAmount,
             total: currentTotal,
-            paymentMethod: payMethod === 'cash' ? 'CASH' : payMethod === 'thai_chuay_thai' ? 'THAI CHUAY THAI' : 'QR / TRANSFER',
+            paymentMethod: payMethod === 'cash' ? 'CASH' : payMethod === 'thai_chuay_thai' ? 'THAI CHUAY THAI' : payMethod === 'platform' ? 'PLATFORM (GRAB/LINE MAN)' : 'QR / TRANSFER',
             received: received,
             change: changeAmt,
             taxInvoice: taxInvoice,
@@ -1794,7 +1806,7 @@ export const POSView: React.FC = () => {
             subtotal: subtotal,
             vat: vatAmount,
             total: order.totalAmount,
-            paymentMethod: order.paymentMethod === 'cash' ? 'CASH' : order.paymentMethod === 'thai_chuay_thai' ? 'THAI CHUAY THAI' : 'QR / TRANSFER',
+            paymentMethod: order.paymentMethod === 'cash' ? 'CASH' : order.paymentMethod === 'thai_chuay_thai' ? 'THAI CHUAY THAI' : order.paymentMethod === 'platform' ? 'PLATFORM (GRAB/LINE MAN)' : 'QR / TRANSFER',
             received: order.totalAmount, // Assumed exact for history
             change: 0,
             isPaid: order.status === 'completed'
@@ -2119,6 +2131,34 @@ export const POSView: React.FC = () => {
             .map(([date, data]) => ({ date, ...data }))
             .sort((a, b) => b.date.localeCompare(a.date));
     }, [filteredOrders]);
+
+    // v1.4.0 Monthly trend — ALL non-cancelled orders (ignores the date filter) so month-over-month is always visible.
+    const monthlySales = useMemo(() => {
+        const m: { [ym: string]: { gross: number; net: number; orders: number; expenses: number; platformGross: number; days: Set<string> } } = {};
+        activeOrders.forEach(o => {
+            if (!o.createdAt) return;
+            const ym = String(o.createdAt).slice(0, 7);
+            if (!m[ym]) m[ym] = { gross: 0, net: 0, orders: 0, expenses: 0, platformGross: 0, days: new Set() };
+            m[ym].gross += o.totalAmount || 0;
+            m[ym].net += o.netAmount || o.totalAmount || 0;
+            m[ym].orders += 1;
+            if (o.source && o.source !== 'store') m[ym].platformGross += o.totalAmount || 0;
+            m[ym].days.add(String(o.createdAt).slice(0, 10));
+        });
+        (expenses || []).forEach(e => {
+            if (!e || !e.date) return;
+            const ym = String(e.date).slice(0, 7);
+            if (!m[ym]) m[ym] = { gross: 0, net: 0, orders: 0, expenses: 0, platformGross: 0, days: new Set() };
+            m[ym].expenses += e.amount || 0;
+        });
+        const rows = Object.entries(m).map(([ym, d]) => ({ ym, ...d, activeDays: d.days.size, profit: d.net - d.expenses }))
+            .sort((a, b) => a.ym.localeCompare(b.ym));
+        return rows.map((r, i) => {
+            const prev = rows[i - 1];
+            const mom = prev && prev.gross > 0 ? ((r.gross - prev.gross) / prev.gross) * 100 : null;
+            return { ...r, mom };
+        }).reverse();
+    }, [activeOrders, expenses]);
 
     const filteredMenu = useMemo(() => {
         const raw = menu.filter(item => { const cat = item.category || 'pizza'; return cat === activeCategory && item.id !== 'p_half_half' && item.id !== 'p_boat'; });
@@ -2623,6 +2663,11 @@ export const POSView: React.FC = () => {
                                                     <div className="mt-auto flex justify-between items-center pt-2">
                                                         <span className="font-bold text-brand-600 text-base md:text-lg">
                                                             {item.id === 'p_half_half' ? (language === 'th' ? 'เลือก 2 หน้า' : 'Select halves') : `฿${getPizzaPrice(item, orderSource)}`}
+                                                            {orderSource !== 'store' && item.id !== 'p_half_half' && (
+                                                                <span className={`ml-1 align-middle text-[9px] font-black px-1.5 py-0.5 rounded ${getPizzaPrice(item, orderSource) !== item.basePrice ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                                    {getPizzaPrice(item, orderSource) !== item.basePrice ? `${PLATFORM_META[orderSource].label}` : (language === 'th' ? 'ราคาร้าน' : 'store price')}
+                                                                </span>
+                                                            )}
                                                         </span>
                                                         {!isEditMode && (
                                                             <button 
@@ -2705,20 +2750,32 @@ export const POSView: React.FC = () => {
                                         <option value="dine-in">{language === 'th' ? 'ทานในร้าน/รับกลับ' : 'Dine-In/Takeaway'}</option>
                                         <option value="delivery">{language === 'th' ? 'เดลิเวอรี่ (ส่งถึงที่)' : 'Delivery'}</option>
                                     </select>
-                                    <select 
-                                        className="border-2 border-gray-200 rounded-xl px-4 py-3 text-base font-bold focus:border-brand-500 outline-none w-full" 
-                                        value={orderSource} 
-                                        onChange={e => setOrderSource(e.target.value as OrderSource)}
-                                    >
-                                        <option value="store">{language === 'th' ? 'สั่งตรงกับร้าน (Store)' : 'Store Direct'}</option>
-                                        <option value="grab">Grab</option>
-                                        <option value="lineman">Lineman</option>
-                                        <option value="robinhood">Robinhood</option>
-                                        <option value="foodpanda">Foodpanda</option>
-                                        <option value="shopeefood">ShopeeFood</option>
-                                        <option value="other">{language === 'th' ? 'อื่นๆ (Other)' : 'Other / อื่นๆ'}</option>
-                                    </select>
+                                    {/* v1.4.0: channel picker moved below as big one-tap chips */}
+                                    <div className="border-2 border-gray-200 rounded-xl px-4 py-3 text-base font-bold text-gray-700 w-full flex items-center justify-between">
+                                        <span>{language === 'th' ? 'ช่องทาง:' : 'Channel:'}</span>
+                                        <span className={orderSource === 'store' ? 'text-gray-900' : 'text-brand-600'}>{PLATFORM_META[orderSource]?.label || orderSource}</span>
+                                    </div>
                                 </div>
+                                {/* ===== v1.4.0 PLATFORM QUICK MODE: one-tap channel chips ===== */}
+                                <div className="flex flex-wrap gap-1.5">
+                                    {(Object.keys(PLATFORM_META) as OrderSource[]).map(src => {
+                                        const m = PLATFORM_META[src]; const active = orderSource === src;
+                                        return (
+                                            <button key={src} type="button"
+                                                onClick={() => { playClickSound(); setOrderSource(src); if (src !== 'store') { setPosOrderType('dine-in'); setPosPromoId(''); } }}
+                                                className={`px-3 py-2 rounded-xl text-sm font-black border-2 transition ${active ? m.active : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                                                {m.emoji} {m.label}{src !== 'store' && active ? <span className="ml-1 text-[10px] opacity-80">GP {Math.round(getGpRate(src) * 100)}%</span> : null}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {orderSource !== 'store' && (
+                                    <div className="rounded-xl border-2 border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-800 leading-relaxed">
+                                        {language === 'th'
+                                            ? `โหมด ${PLATFORM_META[orderSource].label}: ราคาเมนูสลับเป็นราคาแพลตฟอร์มอัตโนมัติ · ระบบหัก GP ${Math.round(getGpRate(orderSource) * 100)}% ให้เอง · ไรเดอร์ของแพลตฟอร์มมารับ (ไม่ต้องกรอกที่อยู่/เรียก Lalamove) · ใส่เลขออเดอร์จากแอปด้านล่างแล้วกด "เช็คบิล" ได้เลย`
+                                            : `${PLATFORM_META[orderSource].label} mode: platform prices applied · GP ${Math.round(getGpRate(orderSource) * 100)}% deducted automatically · platform rider picks up (no address/Lalamove) · enter the app order no. below and hit "Checkout".`}
+                                    </div>
+                                )}
                                 <div className="w-full">
                                     <input 
                                         type="text" 
@@ -2789,7 +2846,7 @@ export const POSView: React.FC = () => {
                                     <div className="w-full">
                                         <input 
                                             type="text" 
-                                            placeholder={language === 'th' ? `หมายเลขออเดอร์ ${orderSource.toUpperCase()}` : `${orderSource.toUpperCase()} Order No.`} 
+                                            placeholder={language === 'th' ? `🧾 เลขออเดอร์จากแอป ${PLATFORM_META[orderSource]?.label || orderSource.toUpperCase()} (เช่น GF-123)` : `${PLATFORM_META[orderSource]?.label || orderSource.toUpperCase()} order no. from the app`} 
                                             className="border-2 border-brand-200 rounded-xl px-4 py-3 text-base font-bold focus:border-brand-500 outline-none w-full bg-brand-50" 
                                             value={deliveryPlatformRef} 
                                             onChange={e => setDeliveryPlatformRef(e.target.value)}
@@ -2916,6 +2973,17 @@ export const POSView: React.FC = () => {
                                         <span>{language === 'th' ? 'รวมยอดทั้งหมด' : 'Total'}</span>
                                         <span>฿{Math.max(0, cartTotal - posCalculatedDiscount - posMemberCouponDiscount)}</span>
                                     </div>
+                                    {orderSource !== 'store' && (() => {
+                                        const gross = Math.max(0, cartTotal - posCalculatedDiscount - posMemberCouponDiscount);
+                                        const rate = getGpRate(orderSource);
+                                        const gp = Math.round(gross * rate);
+                                        return (
+                                            <div className="rounded-xl bg-orange-50 border border-orange-200 px-3 py-2 space-y-0.5">
+                                                <div className="flex justify-between text-xs font-bold text-orange-700"><span>{language === 'th' ? `หัก GP ${PLATFORM_META[orderSource].label} ${Math.round(rate * 100)}%` : `${PLATFORM_META[orderSource].label} GP ${Math.round(rate * 100)}%`}</span><span>-฿{gp.toLocaleString()}</span></div>
+                                                <div className="flex justify-between text-sm font-black text-emerald-700"><span>{language === 'th' ? 'ร้านได้รับสุทธิ' : 'Net to shop'}</span><span>฿{(gross - gp).toLocaleString()}</span></div>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
                                     <button 
@@ -3589,6 +3657,12 @@ export const POSView: React.FC = () => {
                                                 📈 {language === 'th' ? 'สรุปยอดขายรายวัน' : 'Daily Sales Breakdown'}
                                             </button>
                                             <button 
+                                                onClick={() => setSalesSubTab('monthly')}
+                                                className={`px-5 py-3 font-black text-sm border-b-2 transition ${salesSubTab === 'monthly' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                            >
+                                                📅 {language === 'th' ? 'แนวโน้มรายเดือน' : 'Monthly Trend'}
+                                            </button>
+                                            <button 
                                                 onClick={() => setSalesSubTab('expenses')}
                                                 className={`px-5 py-3 font-black text-sm border-b-2 transition ${salesSubTab === 'expenses' ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                                             >
@@ -3715,6 +3789,85 @@ export const POSView: React.FC = () => {
                                                 </div>
                                             </div>
                                         )}
+
+                                        {salesSubTab === 'monthly' && (() => {
+                                            const maxGross = Math.max(1, ...monthlySales.map(r => r.gross));
+                                            const thMonth = (ym: string) => {
+                                                const [y, mo] = ym.split('-').map(Number);
+                                                const d = new Date(y, (mo || 1) - 1, 1);
+                                                return d.toLocaleDateString(language === 'th' ? 'th-TH' : 'en-GB', { month: 'short', year: 'numeric' });
+                                            };
+                                            const chart = [...monthlySales].reverse().slice(-12);
+                                            return (
+                                                <div className="space-y-4">
+                                                    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                                                        <div className="flex justify-between items-center mb-3">
+                                                            <h3 className="font-extrabold text-gray-800 text-base">{language === 'th' ? 'ยอดขายรายเดือน (ทุกเดือนที่มีข้อมูล ไม่ขึ้นกับตัวกรองวันที่)' : 'Monthly sales (all data, ignores date filter)'}</h3>
+                                                            <span className="text-xs font-bold text-gray-500">{monthlySales.length} {language === 'th' ? 'เดือน' : 'months'}</span>
+                                                        </div>
+                                                        {/* simple bar chart */}
+                                                        <div className="flex items-end gap-2 h-44 border-b border-gray-200 pb-1 overflow-x-auto">
+                                                            {chart.map(r => (
+                                                                <div key={r.ym} className="flex-1 min-w-[44px] flex flex-col items-center justify-end gap-1 h-full" title={`${thMonth(r.ym)}: ฿${r.gross.toLocaleString()} (${r.orders} orders)`}>
+                                                                    <span className="text-[10px] font-black text-gray-700">฿{Math.round(r.gross / 1000)}k</span>
+                                                                    <div className="w-full flex items-end justify-center gap-0.5" style={{ height: '75%' }}>
+                                                                        <div className="w-1/2 bg-brand-500 rounded-t" style={{ height: `${Math.max(2, (r.gross / maxGross) * 100)}%` }} />
+                                                                        <div className="w-1/2 bg-emerald-400 rounded-t" style={{ height: `${Math.max(2, (r.net / maxGross) * 100)}%` }} />
+                                                                    </div>
+                                                                    <span className="text-[10px] font-bold text-gray-500 whitespace-nowrap">{thMonth(r.ym)}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <div className="flex gap-4 mt-2 text-[11px] font-bold text-gray-500">
+                                                            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-brand-500 rounded-sm inline-block" /> {language === 'th' ? 'ยอดขายรวม' : 'Gross'}</span>
+                                                            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-emerald-400 rounded-sm inline-block" /> {language === 'th' ? 'รายรับสุทธิ (หลังหัก GP)' : 'Net after GP'}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                                                        <div className="overflow-x-auto">
+                                                            <table className="w-full text-left text-sm whitespace-nowrap">
+                                                                <thead className="bg-gray-50 text-gray-400 font-bold uppercase text-xs border-b border-gray-100">
+                                                                    <tr>
+                                                                        <th className="p-4">{language === 'th' ? 'เดือน' : 'Month'}</th>
+                                                                        <th className="p-4 text-right">{language === 'th' ? 'ออเดอร์' : 'Orders'}</th>
+                                                                        <th className="p-4 text-right">{language === 'th' ? 'วันที่มีขาย' : 'Active days'}</th>
+                                                                        <th className="p-4 text-right">{language === 'th' ? 'ยอดขายรวม' : 'Gross'}</th>
+                                                                        <th className="p-4 text-right">{language === 'th' ? 'เทียบเดือนก่อน' : 'vs prev'}</th>
+                                                                        <th className="p-4 text-right">{language === 'th' ? 'ผ่านแพลตฟอร์ม' : 'Via platforms'}</th>
+                                                                        <th className="p-4 text-right text-emerald-600">{language === 'th' ? 'รายรับสุทธิ' : 'Net'}</th>
+                                                                        <th className="p-4 text-right text-red-500">{language === 'th' ? 'รายจ่าย' : 'Expenses'}</th>
+                                                                        <th className="p-4 text-right">{language === 'th' ? 'กำไรขั้นต้น' : 'Profit'}</th>
+                                                                        <th className="p-4 text-right">{language === 'th' ? 'เฉลี่ย/วันขาย' : 'Avg/day'}</th>
+                                                                        <th className="p-4 text-right">{language === 'th' ? 'เฉลี่ย/บิล' : 'Avg/ticket'}</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-gray-100">
+                                                                    {monthlySales.map(r => (
+                                                                        <tr key={r.ym} className="hover:bg-gray-50 transition">
+                                                                            <td className="p-4 font-black text-gray-900">{thMonth(r.ym)}</td>
+                                                                            <td className="p-4 text-right font-bold text-gray-600">{r.orders}</td>
+                                                                            <td className="p-4 text-right font-bold text-gray-500">{r.activeDays}</td>
+                                                                            <td className="p-4 text-right font-extrabold text-gray-800">฿{r.gross.toLocaleString()}</td>
+                                                                            <td className={`p-4 text-right font-black ${r.mom === null ? 'text-gray-300' : r.mom >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{r.mom === null ? '—' : `${r.mom >= 0 ? '▲' : '▼'} ${Math.abs(r.mom).toFixed(0)}%`}</td>
+                                                                            <td className="p-4 text-right font-bold text-orange-600">{r.platformGross > 0 ? `฿${r.platformGross.toLocaleString()} (${Math.round(r.platformGross / Math.max(1, r.gross) * 100)}%)` : '—'}</td>
+                                                                            <td className="p-4 text-right font-black text-emerald-600">฿{r.net.toLocaleString()}</td>
+                                                                            <td className="p-4 text-right font-bold text-red-500">{r.expenses > 0 ? `-฿${r.expenses.toLocaleString()}` : '—'}</td>
+                                                                            <td className={`p-4 text-right font-black ${r.profit >= 0 ? 'text-gray-900' : 'text-red-600'}`}>฿{r.profit.toLocaleString()}</td>
+                                                                            <td className="p-4 text-right font-bold text-gray-500">฿{Math.round(r.gross / Math.max(1, r.activeDays)).toLocaleString()}</td>
+                                                                            <td className="p-4 text-right font-bold text-gray-500">฿{Math.round(r.gross / Math.max(1, r.orders)).toLocaleString()}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                                    {monthlySales.length === 0 && (
+                                                                        <tr><td colSpan={11} className="p-8 text-center text-gray-400 font-bold">{language === 'th' ? 'ยังไม่มีข้อมูล' : 'No data'}</td></tr>
+                                                                    )}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                        <p className="text-[11px] text-gray-400 font-semibold px-4 py-3 border-t border-gray-100">{language === 'th' ? '* กำไรขั้นต้น = รายรับสุทธิหลังหัก GP − รายจ่ายที่บันทึกในเดือนนั้น (ยังไม่หักต้นทุนสูตรอาหารอัตโนมัติ)' : '* Profit = net after GP − expenses recorded that month (recipe COGS not auto-deducted).'}</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
 
                                         {salesSubTab === 'expenses' && (
                                             <div className="space-y-6">
@@ -5100,6 +5253,7 @@ export const POSView: React.FC = () => {
 
                             {/* Lalamove Connection Settings */}
                             <LalamoveSettingsCard />
+                            <PlatformGpSettingsCard language={language} />
 
                             {/* Store Operating Status & Holiday Settings */}
                             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 mt-6">
