@@ -15,6 +15,27 @@ _ยังไม่มี — รายการที่แก้แล้ว�
 
 ---
 
+## [1.4.0] — 2026-09-13
+
+### Added
+- **โหมดแพลตฟอร์ม (Platform Quick Mode) ในหน้าสั่งอาหาร POS** — บันทึกออเดอร์ Grab / LINE MAN / Robinhood / Foodpanda / ShopeeFood ได้ในไม่กี่แตะ
+  - **ปุ่มช่องทางแบบชิปใหญ่** แทน dropdown เดิม (🏠 ร้าน · 🟢 Grab · 🟩 LINE MAN · …) กดครั้งเดียว ชิปโชว์ % GP ของช่องทางนั้น
+  - เลือกแพลตฟอร์มแล้วระบบ **ตั้งประเภทเป็น "ทานในร้าน/รับกลับ" อัตโนมัติ** (ไรเดอร์ของแพลตฟอร์มมารับ — ไม่ต้องกรอกที่อยู่ ไม่เรียก Lalamove) และปิดโปรโมชั่นร้าน
+  - แถบอธิบายโหมด + ช่อง "🧾 เลขออเดอร์จากแอป" ชัดเจน
+  - **ป้ายราคาบนการ์ดเมนู**: บอกว่าเมนูนี้ใช้ราคา Grab/LINE MAN หรือยังเป็นราคาร้าน
+  - **สรุปในตะกร้า**: ยอดขาย → หัก GP xx% → **ร้านได้รับสุทธิ** เห็นก่อนกดเช็คบิล
+  - เช็คบิลออเดอร์แพลตฟอร์มบันทึกวิธีจ่ายเป็น **PLATFORM** (แพลตฟอร์มโอนให้ทีหลัง) แยกจากเงินสด/QR ในรายงาน
+- **ตั้งค่า % GP เองได้** — การ์ด "ค่า GP แพลตฟอร์มเดลิเวอรี่" ในแท็บตั้งค่า (`src/components/PlatformGpSettingsCard.tsx`) บันทึกลง `store_settings.gp_rates`; ปุ่มค่าเริ่มต้น (Grab 32 / LINE MAN 32 / Robinhood 25 / Foodpanda 35 / ShopeeFood 30); ออเดอร์ที่บันทึกไปแล้วไม่เปลี่ยน
+- **รายงานขาย: แท็บใหม่ "📅 แนวโน้มรายเดือน"** — กราฟแท่ง 12 เดือน (ยอดขายรวม vs รายรับสุทธิ) + ตารางต่อเดือน: ออเดอร์ · วันที่มีขาย · ยอดขายรวม · เทียบเดือนก่อน (▲▼%) · ยอดผ่านแพลตฟอร์ม · รายรับสุทธิ · รายจ่าย · กำไรขั้นต้น · เฉลี่ยต่อวันขาย · เฉลี่ยต่อบิล (ดูทุกเดือนที่มีข้อมูล ไม่ขึ้นกับตัวกรองวันที่)
+- `StoreContext.getGpRate(source)` — จุดเดียวที่ทุกการคำนวณรายรับสุทธิใช้ (แทนค่าคงที่ `GP_RATES` 5 จุดเดิม)
+- `types.ts`: `PaymentMethod` เพิ่ม `'platform'`, `StoreSettings.gpRates`
+- ฐานข้อมูล: `store_settings.gp_rates jsonb` — migration `store_settings_gp_rates`
+
+### Changed
+- ฟังก์ชันเดิม (เลือกช่องทาง → ราคาสลับ → หัก GP) ยังทำงานเหมือนเดิม แต่เข้าถึงง่ายและมองเห็นผลลัพธ์ทันที — ที่ผ่านมาออเดอร์สำเร็จทั้ง 210 ใบถูกบันทึกเป็น "ร้าน" ทั้งหมด
+
+---
+
 ## [1.3.0] — 2026-09-13
 
 ### Added
@@ -113,7 +134,8 @@ _เวอร์ชันฐาน: สรุปทุกอย่างที�
 
 ---
 
-[Unreleased]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.4.0
 [1.3.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.3.0
 [1.2.1]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.2.1
 [1.2.0]: https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/tag/v1.2.0

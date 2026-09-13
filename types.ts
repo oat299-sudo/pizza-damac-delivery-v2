@@ -85,7 +85,7 @@ export interface CustomerProfile {
 export type OrderType = 'dine-in' | 'online' | 'delivery';
 export type OrderSource = 'store' | 'grab' | 'lineman' | 'robinhood' | 'foodpanda' | 'shopeefood' | 'other';
 export type OrderStatus = 'pending' | 'confirmed' | 'acknowledged' | 'cooking' | 'ready' | 'completed' | 'cancelled';
-export type PaymentMethod = 'cash' | 'qr_transfer' | 'thai_chuay_thai';
+export type PaymentMethod = 'cash' | 'qr_transfer' | 'thai_chuay_thai' | 'platform'; // platform = paid via Grab/LINE MAN etc. (settled by the platform)
 export type AppView = 'customer' | 'kitchen' | 'pos' | 'track';
 export type Language = 'en' | 'th';
 
@@ -332,6 +332,8 @@ export interface NewsItem {
 
 export interface StoreSettings {
   isOpen: boolean;
+  // Platform GP (commission) rates as FRACTIONS, e.g. { grab: 0.32 }. Editable in POS settings; falls back to GP_RATES.
+  gpRates?: Partial<Record<OrderSource, number>>;
   closedMessage: string;
   // Promo / Marketing
   promoBannerUrl?: string; // URL for image or video
