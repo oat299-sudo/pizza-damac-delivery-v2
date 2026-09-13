@@ -2488,6 +2488,7 @@ export const POSView: React.FC = () => {
                         {shopLogo ? <img src={shopLogo} alt="Logo" className="w-14 h-14 rounded-full object-cover border-2 border-brand-500" /> : <div className="bg-brand-600 p-3 rounded-xl text-white shadow-lg shadow-brand-500/50"><DollarSign size={28} /></div>}
                          <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleLogoUpload}/>
                     </div>
+                    <div className="-mt-5 text-gray-500 text-center leading-none"><AppVersionBadge /></div>
                     <button onClick={() => { playClickSound(); setActiveTab('order'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'order' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'สั่งอาหารใหม่' : 'New Order'}><ShoppingBag size={28} /></button>
                     <button onClick={() => { playClickSound(); setActiveTab('tables'); }} className={`p-4 rounded-2xl transition relative w-16 h-16 flex items-center justify-center ${activeTab === 'tables' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'ออเดอร์ทั้งหมด' : 'Active Orders'}><Layers size={28} />{activeTables.length > 0 && <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full animate-ping"></span>}</button>
                     <button onClick={() => { playClickSound(); setActiveTab('sales'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'sales' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'รายงานขาย' : 'Reports'}><PieChart size={28} /></button>
@@ -2508,7 +2509,6 @@ export const POSView: React.FC = () => {
                     </button>
                     <button onClick={() => { playClickSound(); toggleLanguage(); }} className="text-xs font-bold bg-gray-800 text-gray-300 w-12 h-12 rounded-full flex items-center justify-center hover:bg-gray-700 active:scale-95 transition">{language.toUpperCase()}</button>
                     <button onClick={() => { playAlertSound(); adminLogout(); }} className="p-4 text-red-400 hover:bg-gray-800 rounded-xl transition cursor-pointer" title={language === 'th' ? 'ออกจากระบบ' : 'Logout'}><LogOut size={28} /></button>
-                    <div className="text-gray-500 text-center leading-none pb-1"><AppVersionBadge /></div>
                 </div>
             </aside>
             
