@@ -93,7 +93,7 @@ interface StoreContextType {
   updateOrderNetAmount: (orderId: string, netAmount: number) => Promise<void>;
   completeOrder: (orderId: string, paymentDetails: { paymentMethod: PaymentMethod, note?: string }) => Promise<void>;
   deleteOrder: (orderId: string) => Promise<void>;
-  updateOrderFields: (orderId: string, fields: Partial<Order>) => Promise<void>;
+  updateOrderFields: (orderId: string, fields: Partial<Order>) => Promise<boolean>;
   reorderItem: (orderId: string) => void;
   fetchOrders: () => Promise<void>;
   submitOrderFeedback: (orderId: string, rating: number, comment: string) => Promise<void>;
@@ -3354,14 +3354,36 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           if (fields.rating !== undefined) payload.rating = fields.rating;
           if (fields.comment !== undefined) payload.comment = fields.comment;
 
+          // REAL Lalamove booking columns (snake_case, stored as real columns on `orders`).
+          // BUG FIX (Sep 2026): these were never written to Supabase, so after a successful
+          // Lalamove booking the DB still had lalamove_order_id = NULL -> the POS panel fell
+          // back to the "Book rider" button -> staff pressed again -> DUPLICATE real riders.
+          // The webhook (webhook_update_delivery_status) also matches on lalamove_order_id,
+          // so without this the delivery status could never update either.
+          const f: any = fields;
+          if (f.lalamove_order_id !== undefined) payload.lalamove_order_id = f.lalamove_order_id;
+          if (f.lalamove_share_link !== undefined) payload.lalamove_share_link = f.lalamove_share_link;
+          if (f.delivery_status !== undefined) payload.delivery_status = f.delivery_status;
+          if (f.lalamove_quotation_id !== undefined) payload.lalamove_quotation_id = f.lalamove_quotation_id;
+          if (f.delivery_vehicle !== undefined) payload.delivery_vehicle = f.delivery_vehicle;
+
           try {
               const { error } = await supabase.from('orders').update(payload).eq('id', orderId);
-              if (error) console.error("Supabase order update error:", error);
+              if (error) {
+                  console.error("Supabase order update error:", error);
+                  // Keep local state in sync anyway so the UI does not flip back to "unbooked",
+                  // but tell the caller the DB write failed.
+                  setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...fields } : o));
+                  return false;
+              }
           } catch(e) {
               console.error("Failed to update order in Supabase:", e);
+              setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...fields } : o));
+              return false;
           }
       }
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...fields } : o));
+      return true;
   };
 
   const reorderItem = (orderId: string) => {
