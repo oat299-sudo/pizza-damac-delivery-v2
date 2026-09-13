@@ -94,6 +94,7 @@ interface StoreContextType {
   completeOrder: (orderId: string, paymentDetails: { paymentMethod: PaymentMethod, note?: string }) => Promise<void>;
   deleteOrder: (orderId: string) => Promise<void>;
   updateOrderFields: (orderId: string, fields: Partial<Order>) => Promise<boolean>;
+  getGpRate: (source: OrderSource | string | undefined) => number; // platform commission as fraction (0.32)
   reorderItem: (orderId: string) => void;
   fetchOrders: () => Promise<void>;
   submitOrderFeedback: (orderId: string, rating: number, comment: string) => Promise<void>;
@@ -1803,6 +1804,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // --- Store Settings State (From DB + Local Storage Backup) ---
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
+  // Platform GP rate (fraction). Prefers the editable value in store_settings.gp_rates, falls back to constants.
+  const getGpRate = (source: OrderSource | string | undefined): number => {
+      const key = (source || 'store') as OrderSource;
+      const custom = storeSettings?.gpRates?.[key];
+      if (typeof custom === 'number' && !isNaN(custom)) return Math.min(1, Math.max(0, custom));
+      return (GP_RATES as any)[key] || 0;
+  };
       if (typeof window !== 'undefined') {
           const saved = localStorage.getItem('damac_store_settings');
           if (saved) {
@@ -2101,7 +2109,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   reviewLinks: data.review_links || [],
                   vibeLinks: data.vibe_links || [],
                   eventGalleryUrls: data.event_gallery_urls || DEFAULT_STORE_SETTINGS.eventGalleryUrls, // Map new column
-                  newsItems: data.news_items || []
+                  newsItems: data.news_items || [],
+                  gpRates: (data.gp_rates && typeof data.gp_rates === 'object') ? data.gp_rates : undefined
               });
               if (data.partners && Array.isArray(data.partners)) {
                   setPartners(data.partners);
@@ -2852,7 +2861,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           const newTotalAmount = newSubtotal + deliveryFee;
 
           // Calculate Net (GP Deduction)
-          const gpRate = GP_RATES[existingOrder.source] || 0;
+          const gpRate = getGpRate(existingOrder.source);
           const newNetAmount = newTotalAmount * (1 - gpRate);
 
           // Append to note if there is a new note
@@ -2926,7 +2935,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       
       // Calculate Net (GP Deduction)
       const source = details?.source || 'store';
-      const gpRate = GP_RATES[source] || 0;
+      const gpRate = getGpRate(source);
       const netAmount = Math.max(0, totalAmount * (1 - gpRate));
 
       // Partner Commission calculation
@@ -3214,7 +3223,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       
       const currentDeliveryFee = order.deliveryFee === 'pending' ? 0 : (order.deliveryFee || 0);
       const subtotal = order.totalAmount - currentDeliveryFee;
-      const newNet = subtotal * (1 - (GP_RATES[order.source] || 0));
+      const newNet = subtotal * (1 - (getGpRate(order.source)));
 
       if (isSupabaseConfigured) {
           await supabase.rpc('customer_update_order', { p_id: orderId, p: {
@@ -3240,7 +3249,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const currentDeliveryFee = order.deliveryFee === 'pending' ? 0 : (order.deliveryFee || 0);
       const subtotal = order.totalAmount - currentDeliveryFee;
       const newTotal = subtotal + fee;
-      const newNet = newTotal * (1 - (GP_RATES[order.source] || 0));
+      const newNet = newTotal * (1 - (getGpRate(order.source)));
       
       if (isSupabaseConfigured) {
           await supabase.from('orders').update({ 
@@ -3342,7 +3351,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               const subtotal = existingOrder ? (existingOrder.totalAmount - currentFee) : 0;
               const newFee = fields.deliveryFee === 'pending' ? 0 : (fields.deliveryFee || 0);
               const newTotal = subtotal + newFee;
-              const newNet = newTotal * (1 - (GP_RATES[existingOrder?.source || 'store'] || 0));
+              const newNet = newTotal * (1 - (getGpRate(existingOrder?.source || 'store')));
 
               payload.delivery_fee = fields.deliveryFee === 'pending' ? null : fields.deliveryFee;
               payload.total_amount = newTotal;
@@ -4005,6 +4014,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           if (settings.contactPhone !== undefined) payload.contact_phone = settings.contactPhone;
           if (settings.promptPayNumber !== undefined) payload.prompt_pay_number = settings.promptPayNumber;
           if (settings.partners !== undefined) payload.partners = settings.partners;
+          if (settings.gpRates !== undefined) payload.gp_rates = settings.gpRates;
           
           if (settings.storeLocationGps !== undefined) payload.store_location_gps = settings.storeLocationGps;
           if (settings.freeDeliveryRadiusKm !== undefined) payload.free_delivery_radius_km = settings.freeDeliveryRadiusKm;
@@ -4087,6 +4097,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       language, toggleLanguage, t, getLocalizedItem,
       currentView, trackingOrderId, navigateTo,
       isAdminLoggedIn, adminLogin, adminLogout,
+      getGpRate,
       shopLogo, updateShopLogo,
       menu, addPizza, updatePizza, deletePizza, updatePizzaPrice, togglePizzaAvailability, toggleBestSeller, generateLuckyPizza, seedDatabase, reorderMenu,
       toppings, addTopping, updateTopping, deleteTopping,
