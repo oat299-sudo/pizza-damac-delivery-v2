@@ -126,8 +126,22 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
   const selectedQuoteNow = quotes.find(q => q.vehicleType === selectedVehicle) || quotes[0];
   const hasRealQuote = Boolean(selectedQuoteNow?.quotationId);
 
+  // Lalamove order created in THIS panel session (survives a slow / failed DB save so the
+  // button can never be pressed twice for the same order).
+  const [bookedOrderId, setBookedOrderId] = useState<string | null>(order.lalamove_order_id || null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  useEffect(() => { if (order.lalamove_order_id) setBookedOrderId(order.lalamove_order_id); }, [order.lalamove_order_id]);
+
   const handleDispatch = async () => {
     const selectedQuote = quotes.find(q => q.vehicleType === selectedVehicle) || quotes[0];
+
+    // DOUBLE-BOOKING GUARD: a real Lalamove order already exists for this order.
+    if (isBooking || bookedOrderId || order.lalamove_order_id) {
+      alert(language === 'th'
+        ? `ออเดอร์นี้เรียกไรเดอร์ Lalamove ไปแล้ว (Lalamove ID: ${bookedOrderId || order.lalamove_order_id})\n\nไม่ต้องกดซ้ำครับ ถ้าต้องการเรียกใหม่ให้กด "ยกเลิกการเรียก" ก่อน`
+        : `A Lalamove rider was already booked for this order (ID: ${bookedOrderId || order.lalamove_order_id}). Cancel it first to re-book.`);
+      return;
+    }
 
     // HARD GUARD: never book without a REAL Lalamove quotation (no more fake riders)
     if (!selectedQuote?.quotationId) {
@@ -149,16 +163,25 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
         storeSettings?.contactPhone
       );
       if (realOrder && 'orderId' in realOrder) {
-        await updateOrderFields(order.id, {
+        // Lock the button IMMEDIATELY - the real rider is already booked at this point.
+        setBookedOrderId(realOrder.orderId);
+        const saved = await updateOrderFields(order.id, {
           delivery_status: 'assigning', // Lalamove standard status
           lalamove_order_id: realOrder.orderId,
           lalamove_share_link: realOrder.shareLink,
           lalamoveStatus: 'assigned', // Keep for UI compatibility
+          lalamoveTrackingId: realOrder.orderId,
           lalamoveRiderName: language === 'th' ? 'กำลังหาไรเดอร์...' : 'Waiting for Rider',
           lalamoveRiderPhone: '-',
           lalamoveVehicleType: selectedQuote.vehicleNameTh,
           deliveryFee: selectedQuote.totalFare
         });
+        if (saved === false) {
+          setSaveFailed(true);
+          alert(language === 'th'
+            ? `⚠️ เรียกไรเดอร์กับ Lalamove สำเร็จแล้ว (ID: ${realOrder.orderId}) แต่บันทึกลงระบบร้านไม่สำเร็จ\n\nห้ามกดเรียกซ้ำ! จดเลข ID นี้ไว้ แล้วดูสถานะในแอป Lalamove ได้เลย`
+            : `⚠️ Lalamove booking succeeded (ID: ${realOrder.orderId}) but saving to the shop database failed.\n\nDo NOT book again - track it in the Lalamove app.`);
+        }
       } else {
         const reason = (realOrder && 'error' in realOrder) ? realOrder.error : '';
         alert(language === 'th'
@@ -174,6 +197,8 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
   };
 
   const clearBookingFields = async () => {
+    setBookedOrderId(null);
+    setSaveFailed(false);
     await updateOrderFields(order.id, {
       lalamoveStatus: 'none',
       delivery_status: 'canceled',
@@ -189,8 +214,9 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
   const handleCancelBooking = async () => {
     if (!confirm(language === 'th' ? "ต้องการยกเลิกการเรียกไรเดอร์ Lalamove ใช่หรือไม่?" : "Are you sure you want to cancel the Lalamove booking?")) return;
 
+    const realId = order.lalamove_order_id || bookedOrderId;
     // No real Lalamove order attached — just clear the local state
-    if (!order.lalamove_order_id) {
+    if (!realId) {
       await clearBookingFields();
       return;
     }
@@ -199,7 +225,7 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
     // (Old bug: state was cleared even when the real cancel failed -> staff re-booked
     //  and TWO riders showed up. Never again.)
     try {
-      const res = await fetch(`/api/lalamove/order/${order.lalamove_order_id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/lalamove/order/${realId}`, { method: 'DELETE' });
       if (res.ok) {
         await clearBookingFields();
         alert(language === 'th' ? '✅ ยกเลิกไรเดอร์กับ Lalamove เรียบร้อยแล้ว' : '✅ Lalamove booking cancelled.');
@@ -228,6 +254,9 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
   };
 
   const status = deriveStatus();
+  // If we booked a real rider but the DB row has not caught up (or the save failed),
+  // NEVER show the booking button again for this order.
+  const lockedByLocalBooking = status === 'none' && !!bookedOrderId;
 
   return (
     <div className="bg-orange-50/70 border border-orange-200 rounded-xl p-3 mt-3 shadow-xs space-y-3 animate-fade-in text-sm">
@@ -262,7 +291,27 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
         </div>
       </div>
 
-      {status === 'none' ? (
+      {lockedByLocalBooking ? (
+        // BOOKED, BUT DB NOT YET IN SYNC (or save failed) - lock the panel
+        <div className="space-y-2">
+          <div className={`rounded-lg px-3 py-2 text-xs font-bold leading-relaxed border-2 ${saveFailed ? 'bg-red-50 border-red-300 text-red-800' : 'bg-blue-50 border-blue-300 text-blue-800'}`}>
+            {saveFailed
+              ? (language === 'th'
+                  ? `⚠️ เรียกไรเดอร์ Lalamove สำเร็จแล้ว (ID: ${bookedOrderId}) แต่บันทึกลงระบบร้านไม่สำเร็จ — ห้ามกดเรียกซ้ำ ดูสถานะในแอป Lalamove`
+                  : `⚠️ Rider booked (ID: ${bookedOrderId}) but the shop DB save failed — do NOT re-book. Track in the Lalamove app.`)
+              : (language === 'th'
+                  ? `✅ เรียกไรเดอร์ Lalamove แล้ว (ID: ${bookedOrderId}) — กำลังรอระบบอัปเดตสถานะ...`
+                  : `✅ Lalamove rider booked (ID: ${bookedOrderId}) — waiting for status sync...`)}
+          </div>
+          <button
+            type="button"
+            onClick={handleCancelBooking}
+            className="w-full py-1.5 rounded bg-white text-red-600 border border-red-200 hover:bg-red-50 text-sm font-bold shadow-sm transition active:scale-95"
+          >
+            {language === 'th' ? 'ยกเลิกการเรียก' : 'Cancel Lalamove'}
+          </button>
+        </div>
+      ) : status === 'none' ? (
         // QUOTE AND BOOKING VIEW
         <div className="space-y-2.5">
           {scheduledInfo && (
