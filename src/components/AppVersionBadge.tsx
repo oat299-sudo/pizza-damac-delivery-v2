@@ -26,7 +26,7 @@ export default function AppVersionBadge({ className = '' }: { className?: string
       className={`inline-flex items-center gap-1 font-mono text-[10px] tracking-wide opacity-70 ${className}`}
       title={info.revision ? `Cloud Run revision: ${info.revision}` : undefined}
     >
-      v{info.version}{rev ? <span className="opacity-60">· {rev}</span> : null}
+      v{info.version}{rev ? <span className="opacity-60"> · {rev}</span> : null}
     </span>
   );
 }
