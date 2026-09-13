@@ -8,6 +8,8 @@ import { generatePromptPayPayload } from '../utils/promptpay';
 import { calculateDistanceKm } from '../utils/geo';
 import LalamoveDispatchPanel from '../src/components/LalamoveDispatchPanel';
 import AppVersionBadge from '../src/components/AppVersionBadge';
+import CrmCenter from '../src/components/CrmCenter';
+import { Users as UsersIcon } from 'lucide-react';
 import { LalamoveSettingsCard } from '../src/components/LalamoveSettingsCard';
 import PromoBoard from '../src/components/PromoBoard';
 import StockManager from '../src/components/StockManager';
@@ -164,7 +166,7 @@ export const POSView: React.FC = () => {
     }, [activeTab]);
 
     useEffect(() => {
-        if (activeTab === 'manage') {
+        if (activeTab === 'manage' || activeTab === 'crm') {
             const fetchCustomersList = async () => {
                 setLoadingCustomers(true);
                 try {
@@ -2496,7 +2498,8 @@ export const POSView: React.FC = () => {
                     <button onClick={() => { playClickSound(); setActiveTab('partners'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'partners' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'พาร์ทเนอร์แนะนำ' : 'Partner Referral Shares'}><Store size={28} /></button>
                     <button onClick={() => { playClickSound(); setActiveTab('promos'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'promos' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'โปรโมชั่น & ส่วนลด' : 'Promotions & Discounts'}><Tag size={28} /></button>
                     <button onClick={() => { playClickSound(); setActiveTab('stock'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center relative ${activeTab === 'stock' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'สต็อกวัตถุดิบ & Supplier' : 'Stock & Suppliers'}><Package size={28} />{lowStockItems.length > 0 && <span className="absolute top-2 right-2 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center animate-pulse">{lowStockItems.length}</span>}</button>
-                     <button onClick={() => { playClickSound(); setActiveTab('manage'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'manage' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'ตั้งค่าร้านค้า' : 'Store Settings'}><Settings size={28} /></button>
+                     <button onClick={() => { playClickSound(); setActiveTab('crm'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'crm' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'ลูกค้า (CRM)' : 'Customers (CRM)'}><UsersIcon size={28} /></button>
+                    <button onClick={() => { playClickSound(); setActiveTab('manage'); }} className={`p-4 rounded-2xl transition w-16 h-16 flex items-center justify-center ${activeTab === 'manage' ? 'bg-brand-600 text-white shadow-lg' : 'hover:bg-gray-800'}`} title={language === 'th' ? 'ตั้งค่าร้านค้า' : 'Store Settings'}><Settings size={28} /></button>
                 </div>
                 <div className="flex flex-col items-center gap-4 w-full">
                     {/* SYSTEM SOUND TOGGLE CONTROLLER */}
@@ -2518,6 +2521,7 @@ export const POSView: React.FC = () => {
                 <button onClick={() => { playClickSound(); setActiveTab('tables'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 relative ${activeTab === 'tables' ? 'text-brand-500' : 'text-gray-400'}`}><Layers size={20}/>{activeTables.length > 0 && <span className="absolute top-0 right-3 w-2 h-2 bg-red-500 rounded-full animate-ping"></span>}<span className="text-[10px] font-bold">{language === 'th' ? 'กำลังทำ' : 'Active'}</span></button>
                 <div className="relative -top-5"><button onClick={() => { playClickSound(); setShowMobileCart(!showMobileCart); }} className="bg-brand-600 text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center border-4 border-gray-900">{showMobileCart ? <X size={24}/> : (<><ShoppingBag size={24}/>{cart.length > 0 && <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{cart.reduce((s,i)=>s+i.quantity,0)}</span>}</>)}</button></div>
                 <button onClick={() => { playClickSound(); setActiveTab('stock'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 relative ${activeTab === 'stock' ? 'text-brand-500' : 'text-gray-400'}`}><Package size={20}/>{lowStockItems.length > 0 && <span className="absolute -top-1 right-0 min-w-[15px] h-[15px] px-0.5 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center">{lowStockItems.length}</span>}<span className="text-[10px] font-bold">{language === 'th' ? 'สต็อก' : 'Stock'}</span></button>
+                <button onClick={() => { playClickSound(); setActiveTab('crm'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 ${activeTab === 'crm' ? 'text-brand-500' : 'text-gray-400'}`}><UsersIcon size={22} /><span className="text-[10px] font-bold">{language === 'th' ? 'ลูกค้า' : 'CRM'}</span></button>
                 <button onClick={() => { playClickSound(); setActiveTab('manage'); setShowMobileCart(false); }} className={`flex flex-col items-center gap-1 ${activeTab === 'manage' ? 'text-brand-500' : 'text-gray-400'}`}><Settings size={20}/><span className="text-[10px] font-bold">{language === 'th' ? 'ตั้งค่าร้าน' : 'Settings'}</span></button>
             </div>
 
@@ -4711,6 +4715,21 @@ export const POSView: React.FC = () => {
                 {/* ===== STOCK & SUPPLIER TAB ===== */}
                 {activeTab === 'stock' && <StockManager />}
 
+                {activeTab === 'crm' && (
+                    <CrmCenter
+                        customers={registeredCustomers}
+                        orders={orders}
+                        language={language}
+                        loading={loadingCustomers}
+                        onRefresh={async () => {
+                            setLoadingCustomers(true);
+                            try { const data = await getAllCustomers(); setRegisteredCustomers(data || []); }
+                            catch (e) { console.error(e); }
+                            finally { setLoadingCustomers(false); }
+                        }}
+                        onIssueCoupon={(cust) => setSelectedCouponCustomer(cust)}
+                    />
+                )}
                 {activeTab === 'manage' && (
                     <div className="flex-1 bg-gray-100 p-6 overflow-y-auto pb-24 lg:pb-6">
                         <div className="max-w-4xl mx-auto space-y-6 text-left">
