@@ -2123,7 +2123,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if (!isSupabaseConfigured || !customer) return;
       try {
           // Fetch latest profile including addresses
-          const { data } = await supabase.rpc('loyalty_lookup', { p_phone: customer.phone }).single();
+          const { data } = await supabase.rpc('loyalty_lookup', { p_phone: customer.phone, p_token: customer.sessionToken || null }).single();
           if (data) {
               // Look up if there are any locally assigned coupons
               let localCoupons = [];
@@ -2152,7 +2152,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               const updatedProfile: CustomerProfile = {
                   name: data.name,
                   phone: data.phone,
-                  password: data.password,
+                  password: undefined,
+                  sessionToken: customer.sessionToken,
                   address: data.address,
                   birthday: data.birthday,
                   loyaltyPoints: data.loyalty_points,
@@ -2436,7 +2437,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 name: profile.name, 
                 address: profile.address, 
                 birthday: profile.birthday, 
-                password: profile.password,
+                password: profile.sessionToken ? undefined : profile.password,
                 loyalty_points: profile.loyaltyPoints, 
                 tier: profile.tier,
                 saved_favorites: favoritesWithBackup, 
@@ -2447,7 +2448,19 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             if (profile.pdpaAccepted !== undefined) payload.pdpa_accepted = profile.pdpaAccepted;
             if (profile.savedAddresses !== undefined) payload.saved_addresses = profile.savedAddresses;
 
-            let { error: upsertError } = await supabase.rpc('loyalty_upsert', { p: payload });
+            let { data: upsertToken, error: upsertError } = await supabase.rpc('loyalty_upsert', { p: payload, p_token: profile.sessionToken || null });
+            if (!upsertError && upsertToken && !profile.sessionToken) {
+                // New account: the database issued a session token for this browser
+                const withTok = { ...profile, sessionToken: String(upsertToken), password: undefined };
+                setCustState(withTok);
+                try { localStorage.setItem('damac_customer', JSON.stringify(withTok)); } catch(e) {}
+            }
+            if (upsertError && String(upsertError.message || '').includes('LOGIN_REQUIRED')) {
+                // Session expired / old login without token: force a fresh login
+                setCustState(null);
+                try { localStorage.removeItem('damac_customer'); } catch(e) {}
+                throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง / Session expired, please log in again');
+            }
             if (upsertError) {
                 // Resilient fallback logic: If db schema is older and lacks pdpa_accepted, saved_addresses or coupons
                 if (upsertError.message && upsertError.message.includes("column") && 
@@ -2457,7 +2470,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     delete strippedPayload.pdpa_accepted;
                     delete strippedPayload.saved_addresses;
                     delete strippedPayload.coupons;
-                    const { error: retryError } = await supabase.rpc('loyalty_upsert', { p: strippedPayload });
+                    const { error: retryError } = await supabase.rpc('loyalty_upsert', { p: strippedPayload, p_token: profile.sessionToken || null });
                     upsertError = retryError;
                 }
             }
@@ -2495,6 +2508,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   existingSavedAddresses = data.saved_addresses || [];
                   existingCoupons = data.coupons || [];
                   hasCouponRecord = Array.isArray(data.coupons);
+                  if (!customer || customer.phone !== newProfile.phone || !customer.sessionToken) {
+                      throw new Error('เบอร์นี้มีบัญชีอยู่แล้ว กรุณาเข้าสู่ระบบ หรือติดต่อร้านเพื่อรีเซ็ตรหัสผ่าน / This phone already has an account. Please log in, or contact the shop to reset your password.');
+                  }
                   if (!hasCouponRecord && existingCoupons.length === 0) {
                       try {
                           const saved = localStorage.getItem('damac_mock_customers');
@@ -2577,7 +2593,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               const profile: CustomerProfile = {
                   name: data.name,
                   phone: data.phone,
-                  password: data.password,
+                  password: undefined,
+                  sessionToken: data.password ? String(data.password) : undefined, // loyalty_login returns the session token in this slot
                   address: data.address,
                   birthday: data.birthday,
                   loyaltyPoints: data.loyalty_points,
@@ -2725,10 +2742,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       // Sync to DB if connected
       if (isSupabaseConfigured) {
           try {
-              const { error } = await supabase.rpc('loyalty_update', { p_phone: customerPhone, p: { coupons } });
+              const tokC = (customer && customer.phone === customerPhone) ? (customer.sessionToken || null) : null;
+              const { error } = await supabase.rpc('loyalty_update', { p_phone: customerPhone, p: { coupons }, p_token: tokC });
               
               // We also back up to saved_favorites in both cases to make sure it's 100% robust
-              const { data } = await supabase.rpc('loyalty_lookup', { p_phone: customerPhone }).single();
+              const { data } = await supabase.rpc('loyalty_lookup', { p_phone: customerPhone, p_token: tokC }).single();
               const rawFavorites = data?.saved_favorites || [];
               const cleanFavorites = rawFavorites.filter((f: any) => f.id !== "SYSTEM_COUPONS_BACKUP");
               const backupItem = {
@@ -2738,7 +2756,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   toppings: []
               };
               const favoritesWithBackup = [...cleanFavorites, backupItem];
-              await supabase.rpc('loyalty_update', { p_phone: customerPhone, p: { saved_favorites: favoritesWithBackup } });
+              await supabase.rpc('loyalty_update', { p_phone: customerPhone, p: { saved_favorites: favoritesWithBackup }, p_token: tokC });
           } catch(e) { console.error(e); }
       }
   };
@@ -2883,7 +2901,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           // Save to Supabase
           if (isSupabaseConfigured) {
               try {
-                  const { error } = await supabase.rpc('customer_update_order', { p_id: existingOrder.id, p: {
+                  const { error } = await supabase.rpc('customer_update_order', { p_id: existingOrder.id, p_phone: existingOrder.customerPhone || customer?.phone || null, p: {
                       items: updatedOrder.items,
                       total_amount: updatedOrder.totalAmount,
                       net_amount: updatedOrder.netAmount,
@@ -3177,12 +3195,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   // Save to Supabase
                   if (isSupabaseConfigured) {
                       try {
+                          // Points + order history are now credited by the database trigger on the orders table.
                           await supabase.rpc('loyalty_update', { p_phone: targetPhone, p: {
-                              loyalty_points: updatedCustomerProfile.loyaltyPoints,
-                              order_history: updatedCustomerProfile.orderHistory,
                               saved_addresses: updatedCustomerProfile.savedAddresses,
                               coupons: updatedCustomerProfile.coupons
-                          } });
+                          }, p_token: null });
                       } catch(e) {}
                   }
               }
@@ -3227,7 +3244,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const newNet = subtotal * (1 - (getGpRate(order.source)));
 
       if (isSupabaseConfigured) {
-          await supabase.rpc('customer_update_order', { p_id: orderId, p: {
+          await supabase.rpc('customer_update_order', { p_id: orderId, p_phone: order.customerPhone || customer?.phone || null, p: {
               to_pickup: 'true',
               total_amount: subtotal,
               net_amount: newNet
