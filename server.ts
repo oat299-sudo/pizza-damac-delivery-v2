@@ -91,9 +91,10 @@ async function startServer() {
   const linePush = (to: string, text: string) => lineApi('message/push', { to, messages: [{ type: 'text', text }] });
   const lineReply = (replyToken: string, text: string) => lineApi('message/reply', { replyToken, messages: [{ type: 'text', text }] });
 
+  // Server-side calls use the SERVICE ROLE key (never sent to the browser). Falls back to anon for local dev.
   const supaRpc = async (fn: string, params: any) => {
     const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !supabaseKey) return null;
     try {
       const r = await fetch(`${supabaseUrl}/rest/v1/rpc/${fn}`, {
@@ -473,7 +474,7 @@ async function startServer() {
         // Find matching Supabase order and update it
         // We will do this via a raw fetch to Supabase REST API for simplicity on the server
         const supabaseUrl = process.env.VITE_SUPABASE_URL;
-        const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
         
         if (supabaseUrl && supabaseKey) {
             let mappedStatus = status.toLowerCase();

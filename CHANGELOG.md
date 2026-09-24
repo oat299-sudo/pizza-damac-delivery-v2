@@ -15,6 +15,35 @@ _ยังไม่มี — รายการที่แก้แล้ว�
 
 ---
 
+## [1.5.0] — 2026-09-24
+
+### Security
+- **ปิดช่องโหว่ระบบสมาชิก/สะสมแต้ม (ตรวจพบจาก Supabase security audit 23 ก.ย. 2026)**
+  - **อาการ:** ใครก็ได้ที่รู้เบอร์โทรลูกค้า สามารถตั้งรหัสผ่านทับ (ยึดบัญชี), ตั้งแต้ม/tier/คูปองให้ตัวเอง, ดูที่อยู่-วันเกิด-ประวัติสั่งซื้อ, และแก้รายการ/ยอดเงินของออเดอร์ที่เดาเลขได้ โดยไม่ต้องล็อกอิน
+  - **สาเหตุ:** ฟังก์ชัน `loyalty_*`, `customer_update_order`, `track_orders`, `webhook_update_delivery_status` ใน Supabase เป็น SECURITY DEFINER ที่เปิดให้ anon เรียกได้โดยไม่ตรวจสิทธิ์ และหน้าเว็บเป็นคนคำนวณแต้มเองแล้วส่งค่าไปบันทึก
+  - **แก้ (ฐานข้อมูล — migration `harden_loyalty_and_orders_rpcs`):**
+    - ลูกค้าล็อกอินสำเร็จจะได้ **session token** (อายุ 90 วัน, คอลัมน์ใหม่ `customers.session_token / session_expires`) — การแก้โปรไฟล์ต้องแนบ token; พนักงานที่ล็อกอิน Supabase Auth มีสิทธิ์เต็มเหมือนเดิม
+    - **แต้ม + ประวัติสั่งซื้อ + ที่อยู่ล่าสุด ให้ฐานข้อมูลบันทึกเอง** ผ่าน trigger `trg_orders_loyalty` (1 แต้ม/พิซซ่า 1 ถาด, นับจากหมวด pizza/promotion) หน้าเว็บส่งแต้มมาไม่มีผลอีกแล้ว (ลูกค้า "ใช้แต้ม" ให้ลดได้อย่างเดียว, พนักงานปรับได้)
+    - `loyalty_upsert`: สมัครใหม่เริ่ม 0 แต้ม / Bronze เสมอ; เบอร์ที่มีอยู่แล้วต้องมี token ถึงจะแก้ได้ (ไม่มี = `LOGIN_REQUIRED`)
+    - `loyalty_lookup`: ค้นด้วยเบอร์อย่างเดียวเห็นแค่ ชื่อ/แต้ม/tier/คูปอง — ที่อยู่ วันเกิด ประวัติ โน้ตพนักงาน ต้องมี token หรือเป็นพนักงาน
+    - `customer_update_order`: แก้รายการ/เปลี่ยนเป็นรับเอง ต้องส่งเบอร์ที่ตรงกับออเดอร์ และภายใน 2 ชม. หลังสั่ง (ให้คะแนน/คอมเมนต์ยังทำได้ตามเดิม)
+    - `track_orders`: ติดตามด้วยเลขออเดอร์อย่างเดียว จะเห็นเบอร์แบบปิดบาง (086xxxxx17) และที่อยู่แค่ 25 ตัวอักษร เฉพาะออเดอร์ 3 วันล่าสุด; ส่งเบอร์ตรงกันจึงเห็นเต็ม
+    - `webhook_update_delivery_status`: เรียกได้เฉพาะ service role (server) เท่านั้น
+  - **แก้ (โค้ด):**
+    - `types.ts` — เพิ่ม `sessionToken` ใน `CustomerProfile`
+    - `context/StoreContext.tsx` — เก็บ token จาก `loyalty_login`/`loyalty_upsert` และแนบ `p_token` ทุกครั้งที่เรียก `loyalty_lookup/update/upsert`; แนบ `p_phone` ตอน `customer_update_order`; ตัดการส่ง `loyalty_points`/`order_history` จากหน้าเว็บ; ถ้า token หมดอายุจะบังคับล็อกอินใหม่
+    - `server.ts` — ใช้ `SUPABASE_SERVICE_ROLE_KEY` (ตั้งใน Cloud Run เท่านั้น) สำหรับ webhook Lalamove และ LINE bot; ถ้าไม่ตั้งจะ fallback เป็น anon key
+
+### Changed
+- **สมัครสมาชิกซ้ำด้วยเบอร์เดิมไม่รีเซ็ตรหัสผ่านให้แล้ว** — ระบบจะแจ้ง "เบอร์นี้มีบัญชีอยู่แล้ว กรุณาเข้าสู่ระบบ หรือติดต่อร้าน" ลูกค้าลืมรหัส → พนักงานรีเซ็ตให้ที่ POS/CRM
+- ลูกค้าที่ล็อกอินค้างอยู่ก่อนเวอร์ชันนี้ จะถูกให้ล็อกอินใหม่ 1 ครั้ง (ยังไม่มี token)
+
+### ต้องทำตอน deploy
+- Cloud Run → เพิ่ม env var `SUPABASE_SERVICE_ROLE_KEY` (ห้ามใส่ในโค้ด/หน้าเว็บ)
+- Supabase → Authentication → Settings → เปิด Leaked Password Protection
+
+---
+
 ## [1.4.1] — 2026-09-13
 
 ### Fixed

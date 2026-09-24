@@ -70,6 +70,7 @@ export interface CustomerProfile {
   name: string;
   phone: string;
   password?: string; // New: Password for login
+  sessionToken?: string; // Issued by loyalty_login / loyalty_upsert; proves this browser owns the account
   favoritePizza?: string;
   address?: string; // Current default address
   savedAddresses?: string[]; // New: History of addresses
