@@ -19,6 +19,9 @@ Owner: Oat (not a programmer). Reply in simple Thai, explain what changed and wh
 ## Deploy
 - `main` auto-deploys to Google Cloud Run service `pizza-damac-delivery-v2` (asia-southeast1) in ~3–5 min.
   Services `pizza-damac` and `pizza-damac-delivery` are old and unused.
+- Is it live? This session cannot open pizzadamac.com (network policy). Read the latest run of
+  `.github/workflows/verify-deploy.yml` (runs on every push to main; green = new revision serving the
+  package.json version, red = not live after 20 min). For an on-demand check, trigger it with `workflow_dispatch`.
 - Server secrets live in Cloud Run env vars (incl. `SUPABASE_SERVICE_ROLE_KEY`), never in code.
 
 ## Database (Supabase project `hecmhlzgihjatutibwca`)
