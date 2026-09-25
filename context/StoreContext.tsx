@@ -2416,6 +2416,20 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const clearCart = () => setCart([]);
   const cartTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
 
+  // Secret per-order key kept only in this browser: lets a guest (no phone) edit their own order
+  const getOrderKey = (orderId: string): string | null => {
+      try { return JSON.parse(localStorage.getItem('damac_order_keys') || '{}')[orderId] || null; } catch (e) { return null; }
+  };
+  const rememberOrderKey = (orderId: string, key: string) => {
+      try {
+          const map = JSON.parse(localStorage.getItem('damac_order_keys') || '{}');
+          map[orderId] = key;
+          const ids = Object.keys(map);
+          if (ids.length > 30) ids.slice(0, ids.length - 30).forEach(id => delete map[id]);
+          localStorage.setItem('damac_order_keys', JSON.stringify(map));
+      } catch (e) {}
+  };
+
   // Customer
   const setCustomer = async (profile: CustomerProfile) => {
       if (!profile) {
@@ -2924,7 +2938,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           // Save to Supabase
           if (isSupabaseConfigured) {
               try {
-                  const { error } = await supabase.rpc('customer_update_order', { p_id: existingOrder.id, p_phone: existingOrder.customerPhone || customer?.phone || null, p: {
+                  const { error } = await supabase.rpc('customer_update_order', { p_id: existingOrder.id, p_phone: existingOrder.customerPhone || customer?.phone || null, p_key: getOrderKey(existingOrder.id), p: {
                       items: updatedOrder.items,
                       total_amount: updatedOrder.totalAmount,
                       net_amount: updatedOrder.netAmount,
@@ -3003,6 +3017,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           computedNote = computedNote ? `${computedNote} | ${couponStr}` : couponStr;
       }
 
+      const orderEditKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : Array.from({ length: 4 }, () => Math.random().toString(36).slice(2)).join('');
       const newOrder: Order = {
           id: Date.now().toString(),
           customerName: details?.isPosOrder 
@@ -3052,6 +3069,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
              const payload: any = {
                  id: newOrder.id,
+                 edit_key: orderEditKey,
                  customer_name: newOrder.customerName,
                  customer_phone: newOrder.customerPhone,
                  type: newOrder.type,
@@ -3081,6 +3099,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
 
       setOrders(prev => [newOrder, ...prev]);
+      rememberOrderKey(newOrder.id, orderEditKey);
       // Remember this device's own orders so tracking keeps working now that
       // the orders table is staff-only (feeds the track_orders RPC).
       try {
@@ -3269,7 +3288,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const newNet = subtotal * (1 - (getGpRate(order.source)));
 
       if (isSupabaseConfigured) {
-          const { error } = await supabase.rpc('customer_update_order', { p_id: orderId, p_phone: order.customerPhone || customer?.phone || null, p: {
+          const { error } = await supabase.rpc('customer_update_order', { p_id: orderId, p_phone: order.customerPhone || customer?.phone || null, p_key: getOrderKey(orderId), p: {
               to_pickup: 'true',
               total_amount: subtotal,
               net_amount: newNet
