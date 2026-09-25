@@ -12,11 +12,15 @@
 ## [Unreleased]
 
 ### Added
-- **สร้าง GitHub Release อัตโนมัติ** (`.github/workflows/release.yml`) — merge ที่เปลี่ยนเลขใน `package.json` เข้า `main` → GitHub สร้าง Release + tag `vX.Y.Z` ให้เอง พร้อมข้อความจาก CHANGELOG · สร้างย้อนหลังได้ที่แท็บ Actions → Release → Run workflow (วิธีใช้ใน `VERSIONING.md` ขั้น 4)
+- **เช็คอัตโนมัติว่าเวอร์ชันใหม่ขึ้นเว็บจริง** (`.github/workflows/verify-deploy.yml`) — ทุกครั้งที่ merge เข้า `main` GitHub จะเปิด `pizzadamac.com/api/version` ทุก 30 วินาที จนกว่าเลขเวอร์ชันตรงกับ `package.json` และเป็น revision ใหม่ของ Cloud Run → ✅ เขียว = ขึ้นเว็บแล้ว, ❌ แดง = 20 นาทีแล้วยังไม่ขึ้น (ให้ดู Cloud Build) · สั่งเช็คเองได้ที่แท็บ Actions → Verify deploy → Run workflow
 
 ---
 
 ## [1.8.1] — 2026-09-25
+
+### Added
+- **สร้าง GitHub Release อัตโนมัติ** (`.github/workflows/release.yml`, PR #4) — merge ที่เปลี่ยนเลขใน `package.json` เข้า `main` → GitHub สร้าง Release + tag `vX.Y.Z` ให้เอง พร้อมข้อความจาก CHANGELOG · สร้างย้อนหลังได้ที่แท็บ Actions → Release → Run workflow (วิธีใช้ใน `VERSIONING.md` ขั้น 4)
+- `CLAUDE.md` — วิธีทำงานที่คุณ Oat ต้องการ + ข้อควรระวังเรื่องฐานข้อมูลและการ deploy (PR #5)
 
 ### Fixed
 - **POS แก้ไข/บันทึกแล้วไม่ติด — กลับเป็นค่าเดิมเมื่อรีเฟรช** (แจ้งโดยพนักงานร้าน)
