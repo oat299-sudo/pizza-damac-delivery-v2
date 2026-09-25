@@ -2122,9 +2122,21 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const fetchCustomerProfile = async () => {
       if (!isSupabaseConfigured || !customer) return;
       try {
+          // Logins from before v1.5.0 have no session token, and tokens expire after 90 days.
+          // Without a valid token loyalty_lookup returns a trimmed profile (no addresses/favorites/history),
+          // which would overwrite this browser's copy, so ask the customer to log in again instead.
+          const forceRelogin = () => {
+              setCustState(null);
+              try { localStorage.removeItem('damac_customer'); } catch(e) {}
+              alert('กรุณาเข้าสู่ระบบใหม่อีกครั้ง / Please log in again');
+          };
+          if (!customer.sessionToken) { forceRelogin(); return; }
           // Fetch latest profile including addresses
           const { data } = await supabase.rpc('loyalty_lookup', { p_phone: customer.phone, p_token: customer.sessionToken || null }).single();
           if (data) {
+              // A profile-less upsert changes nothing but raises LOGIN_REQUIRED when the token has expired
+              const { error: tokErr } = await supabase.rpc('loyalty_upsert', { p: { phone: customer.phone }, p_token: customer.sessionToken });
+              if (tokErr && String(tokErr.message || '').includes('LOGIN_REQUIRED')) { forceRelogin(); return; }
               // Look up if there are any locally assigned coupons
               let localCoupons = [];
               try {
@@ -2406,6 +2418,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Customer
   const setCustomer = async (profile: CustomerProfile) => {
+      if (!profile) {
+          // Logout: CustomerView calls setCustomer(null)
+          setCustState(null);
+          try { localStorage.removeItem('damac_customer'); } catch(e) {}
+          return;
+      }
       setCustState(profile);
       try {
         localStorage.setItem('damac_customer', JSON.stringify(profile));
@@ -2495,6 +2513,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       let existingCoupons: Coupon[] = [];
       let hasCouponRecord = false; // true = this phone already has a coupons record in DB (even if all used up) -> never re-grant welcome coupons
       let action: 'created' | 'updated' = 'created';
+      let phoneTaken = false;
 
       if (isSupabaseConfigured) {
           // Check if user exists
@@ -2509,7 +2528,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   existingCoupons = data.coupons || [];
                   hasCouponRecord = Array.isArray(data.coupons);
                   if (!customer || customer.phone !== newProfile.phone || !customer.sessionToken) {
-                      throw new Error('เบอร์นี้มีบัญชีอยู่แล้ว กรุณาเข้าสู่ระบบ หรือติดต่อร้านเพื่อรีเซ็ตรหัสผ่าน / This phone already has an account. Please log in, or contact the shop to reset your password.');
+                      phoneTaken = true;
                   }
                   if (!hasCouponRecord && existingCoupons.length === 0) {
                       try {
@@ -2526,6 +2545,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   action = 'updated';
               }
           } catch(e) {}
+          // Thrown outside the try above so it is not swallowed by its empty catch
+          if (phoneTaken) {
+              throw new Error('เบอร์นี้มีบัญชีอยู่แล้ว กรุณาเข้าสู่ระบบ หรือติดต่อร้านเพื่อรีเซ็ตรหัสผ่าน / This phone already has an account. Please log in, or contact the shop to reset your password.');
+          }
       } else {
            // Local Storage fallback for mock
            const saved = localStorage.getItem('damac_mock_customers');
@@ -2931,7 +2954,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                       ...customer, 
                       loyaltyPoints: newPoints
                   };
-                  await setCustomer(updatedCustomer);
+                  // The order is already saved; a profile sync error (e.g. expired login) must not block the flow
+                  try { await setCustomer(updatedCustomer); } catch (e: any) { alert(e?.message || String(e)); }
               }
           }
 
@@ -3181,7 +3205,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
               // Persist profile
               if (isCurrentLoggedIn) {
-                  await setCustomer(updatedCustomerProfile);
+                  // The order is already saved; a profile sync error (e.g. expired login) must not block the flow
+                  try { await setCustomer(updatedCustomerProfile); } catch (e: any) { alert(e?.message || String(e)); }
               } else {
                   // Save offline list
                   try {
@@ -3244,11 +3269,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const newNet = subtotal * (1 - (getGpRate(order.source)));
 
       if (isSupabaseConfigured) {
-          await supabase.rpc('customer_update_order', { p_id: orderId, p_phone: order.customerPhone || customer?.phone || null, p: {
+          const { error } = await supabase.rpc('customer_update_order', { p_id: orderId, p_phone: order.customerPhone || customer?.phone || null, p: {
               to_pickup: 'true',
               total_amount: subtotal,
               net_amount: newNet
           } });
+          if (error) {
+              console.error("Switch to pickup failed:", error);
+              alert('เปลี่ยนเป็นรับเองไม่สำเร็จ กรุณาโทรแจ้งร้าน / Could not switch to pickup, please call the shop. (' + (error.message || '') + ')');
+              return;
+          }
       }
       
       setOrders(prev => prev.map(o => o.id === orderId ? { 
