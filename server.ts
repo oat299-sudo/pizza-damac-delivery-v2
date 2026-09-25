@@ -521,6 +521,8 @@ async function startServer() {
                         msg = `🔎 ออเดอร์ #${sid} กำลังหาไรเดอร์มารับพิซซ่าให้ครับ`;
                     } else if (status === 'ON_GOING') {
                         msg = `🛵 ได้ไรเดอร์แล้วครับ! กำลังเดินทางมารับออเดอร์ #${sid} ที่ร้าน${trackLine}`;
+                        // a rider is on the way again: a later cancel/reject should be announced again
+                        ['REJECTED', 'EXPIRED', 'CANCELED'].forEach(st => deliveryNotified.delete(`${oid}:${st}`));
                     } else if (status === 'PICKED_UP') {
                         msg = `🍕 ไรเดอร์รับออเดอร์ #${sid} แล้ว กำลังนำไปส่งให้ครับ!${trackLine}`;
                     } else if (status === 'COMPLETED') {
@@ -531,6 +533,15 @@ async function startServer() {
                             : `⏳ ขออภัยครับ ตอนนี้ยังหาไรเดอร์ไม่ได้ ร้านกำลังเรียกไรเดอร์ใหม่ให้ออเดอร์ #${sid} ครับ`;
                         // a new rider will be assigned: allow the "rider found" message again
                         deliveryNotified.delete(`${oid}:ON_GOING`);
+                    } else if (status === 'CANCELED') {
+                        // The rider or Lalamove cancelled the booking. Skip it when the shop cancelled on purpose:
+                        // the order was switched to pickup, or the order itself is cancelled/finished.
+                        const cur = await supaRpc('track_orders', { p_ids: [oid], p_phone: null });
+                        const o = Array.isArray(cur) ? cur[0] : null;
+                        if (o && o.type === 'delivery' && !['cancelled', 'completed'].includes(String(o.status))) {
+                            msg = `⏳ ขออภัยครับ ไรเดอร์ยกเลิกงาน ร้านกำลังเรียกไรเดอร์คนใหม่ให้ออเดอร์ #${sid} ครับ`;
+                            deliveryNotified.delete(`${oid}:ON_GOING`);
+                        }
                     }
                     // Lalamove can repeat a status (e.g. ASSIGNING_DRIVER); send each message once per order
                     const key = `${oid}:${status}`;
