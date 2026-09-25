@@ -1,0 +1,51 @@
+# Creates the GitHub Release + tag (e.g. v1.8.0) automatically — step 4 of VERSIONING.md.
+#  - Automatic: whenever package.json changes on main, releases the version in package.json
+#    (skipped if that tag already exists). Release notes = that version's section in CHANGELOG.md.
+#  - Manual (Actions tab → "Release" → Run workflow): release any version at a given commit,
+#    e.g. to back-fill older versions.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without "v" (e.g. 1.6.0). Empty = version in package.json'
+        required: false
+      ref:
+        description: 'Commit SHA to tag. Empty = latest main'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IN_VERSION: ${{ github.event.inputs.version }}
+          IN_REF: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          VER="${IN_VERSION:-$(node -p "require('./package.json').version")}"
+          REF="${IN_REF:-$GITHUB_SHA}"
+          TAG="v${VER}"
+          if gh release view "$TAG" >/dev/null 2>&1 || git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists — nothing to do"; exit 0
+          fi
+          # Notes = the "## [VER]" section of CHANGELOG.md (up to the next version heading)
+          awk -v v="## [${VER}]" 'index($0, v) == 1 {f=1; next} f && /^## \[/ {exit} f' CHANGELOG.md \
+            | sed -e '/^---$/d' > notes.md
+          if [ ! -s notes.md ]; then echo "See CHANGELOG.md" > notes.md; fi
+          DATE=$(grep -m1 -F "## [${VER}]" CHANGELOG.md | sed -E 's/.*— *//' || true)
+          gh release create "$TAG" --target "$(git rev-parse "$REF")" --title "${TAG}${DATE:+ — $DATE}" --notes-file notes.md
+          echo "Created $TAG at $REF"
