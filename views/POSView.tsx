@@ -7,6 +7,7 @@ import { CATEGORIES, EXPENSE_CATEGORIES, PRESET_EXPENSES } from '../constants';
 import { generatePromptPayPayload } from '../utils/promptpay';
 import { calculateDistanceKm } from '../utils/geo';
 import LalamoveDispatchPanel from '../src/components/LalamoveDispatchPanel';
+import DeliveryStatusToasts from '../src/components/DeliveryStatusToasts';
 import AppVersionBadge from '../src/components/AppVersionBadge';
 import CrmCenter from '../src/components/CrmCenter';
 import PlatformGpSettingsCard from '../src/components/PlatformGpSettingsCard';
@@ -1514,6 +1515,11 @@ export const POSView: React.FC = () => {
     const handleSendToKitchen = async () => {
         if (!tableNumber && posOrderType === 'dine-in' && orderSource === 'store') { alert("Please enter a Table Number for store orders."); return; }
         if (posOrderType === 'delivery' && !posDeliveryAddress) { alert("Please enter a delivery address."); return; }
+        // Lalamove cannot book a rider without the customer's phone (the rider calls it on arrival)
+        if (posOrderType === 'delivery' && orderSource === 'store' && (posCustomerPhone || '').replace(/\D/g, '').length < 9) {
+            alert('กรุณาใส่เบอร์โทรลูกค้าสำหรับออเดอร์ส่งถึงบ้าน (ไรเดอร์ Lalamove ต้องใช้โทรหาลูกค้า)\nPlease enter the customer phone for delivery orders.');
+            return;
+        }
         playSuccessFeedback();
 
         let finalDeliveryAddress = posDeliveryAddress;
@@ -1625,6 +1631,14 @@ export const POSView: React.FC = () => {
         if (selectedOrder && selectedOrder.deliveryFee === 'pending') {
             alert("Please update the delivery fee before finalizing payment.");
             return;
+        }
+        if (!selectedOrder && posOrderType === 'delivery' && orderSource === 'store') {
+            if (!posDeliveryAddress) { alert("Please enter a delivery address."); return; }
+            // Lalamove cannot book a rider without the customer's phone (the rider calls it on arrival)
+            if (posOrderType === 'delivery' && orderSource === 'store' && (posCustomerPhone || '').replace(/\D/g, '').length < 9) {
+                alert('กรุณาใส่เบอร์โทรลูกค้าสำหรับออเดอร์ส่งถึงบ้าน (ไรเดอร์ Lalamove ต้องใช้โทรหาลูกค้า)\nPlease enter the customer phone for delivery orders.');
+                return;
+            }
         }
         const currentTotal = posCheckoutTotal;
         if (paymentMethod === 'cash' && parseFloat(cashReceived || '0') < currentTotal) { alert("Insufficient cash!"); return; }
@@ -2252,6 +2266,7 @@ export const POSView: React.FC = () => {
 
     return (
         <div className="flex h-screen bg-gray-100 overflow-hidden flex-col lg:flex-row font-sans print:h-auto print:overflow-visible print:bg-white print:block">
+            <DeliveryStatusToasts orders={orders} language={language} soundEnabled={soundEnabled} />
                      {/* --- DYNAMIC PRINTER STYLE INJECTION --- */}
             <style dangerouslySetInnerHTML={{ __html: `
                 @media print {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Truck, MapPin, Check, ChevronRight, AlertTriangle, Play, CheckCircle2, User, Phone, Search, Loader2 } from 'lucide-react';
-import { Order, parseGPSCoordinates, parseAnyMapLink } from '../../types';
+import { Order, parseGPSCoordinates, parseAnyMapLink, parseDeliveryPhone } from '../../types';
 import { getLalamoveQuote, LalamoveQuote, fetchRealLalamoveQuote, createRealLalamoveOrder, checkLalamoveStatus } from '../../services/lalamoveService';
 import { RESTAURANT_LOCATION } from '../../constants';
 import { calculateDistanceKm } from '../../utils/geo';
@@ -108,19 +108,27 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
   // Production rule: only REAL Lalamove bookings are allowed. Real status updates arrive
   // via the Lalamove webhook (delivery_status), never from a client-side timer.
 
-  // Derive display status: real orders follow webhook delivery_status
-  const deriveStatus = (): NonNullable<Order['lalamoveStatus']> | 'none' => {
+  // Derive display status: real orders follow the webhook's delivery_status (Lalamove v3 statuses)
+  //   finding    = ASSIGNING_DRIVER (or REJECTED: Lalamove re-matches a new rider by itself)
+  //   picking_up = ON_GOING  (rider accepted, heading to the shop)
+  //   in_transit = PICKED_UP
+  //   failed     = EXPIRED / CANCELED by Lalamove or the rider -> staff must re-book
+  type PanelStatus = 'none' | 'finding' | 'picking_up' | 'in_transit' | 'completed' | 'failed';
+  const deriveStatus = (): PanelStatus => {
     if (order.lalamove_order_id) {
       const ds = String(order.delivery_status || '').toLowerCase();
       if (ds === 'completed') return 'completed';
-      if (ds === 'ongoing' || ds === 'on_going') return 'in_transit';
       if (ds === 'picked_up') return 'in_transit';
-      if (ds === 'assigning' || ds === 'assigning_driver') return 'assigned';
-      if (ds === 'on_the_way' || ds === 'to_pickup') return 'picking_up';
-      if (ds === 'canceled' || ds === 'cancelled' || ds === 'rejected' || ds === 'expired') return 'none';
-      return (order.lalamoveStatus && order.lalamoveStatus !== 'none') ? order.lalamoveStatus : 'assigned';
+      if (ds === 'ongoing' || ds === 'on_going' || ds === 'on_the_way' || ds === 'to_pickup') return 'picking_up';
+      if (ds === 'assigning' || ds === 'assigning_driver' || ds === 'rejected') return 'finding';
+      if (ds === 'canceled' || ds === 'cancelled' || ds === 'expired') return 'failed';
+      return 'finding';
     }
-    return order.lalamoveStatus || 'none';
+    const ls = order.lalamoveStatus;
+    if (ls === 'completed') return 'completed';
+    if (ls === 'in_transit') return 'in_transit';
+    if (ls === 'picking_up' || ls === 'assigned') return 'picking_up';
+    return 'none';
   };
 
   const selectedQuoteNow = quotes.find(q => q.vehicleType === selectedVehicle) || quotes[0];
@@ -151,10 +159,17 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
       return;
     }
 
+    // Fall back to the customer's phone embedded in the address text if the field is empty
+    const customerPhone = order.customerPhone || parseDeliveryPhone(order.deliveryAddress || '') || '';
+    if (customerPhone.replace(/\D/g, '').length < 9) {
+      alert(language === 'th'
+        ? 'ออเดอร์นี้ไม่มีเบอร์โทรลูกค้า จึงเรียกไรเดอร์ไม่ได้ (ไรเดอร์ต้องใช้โทรหาลูกค้า)\n\nวิธีแก้: โทรถามเบอร์ลูกค้า แล้วเพิ่มในที่อยู่ของออเดอร์ เช่น [Phone: 0812345678]'
+        : 'This order has no customer phone, so a rider cannot be booked. Add it to the address, e.g. [Phone: 0812345678].');
+      return;
+    }
+
     setIsBooking(true);
     try {
-      // Fall back to the customer's phone embedded in the address text if the field is empty
-      const customerPhone = order.customerPhone || parseDeliveryPhone(order.deliveryAddress || '') || '';
       const realOrder = await createRealLalamoveOrder(
         selectedQuote.quotationId,
         order.customerName || 'Customer',
@@ -311,6 +326,24 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
             {language === 'th' ? 'ยกเลิกการเรียก' : 'Cancel Lalamove'}
           </button>
         </div>
+      ) : status === 'failed' ? (
+        // LALAMOVE / RIDER CANCELLED OR NO RIDER FOUND - staff must re-book
+        <div className="space-y-2">
+          <div className="rounded-lg px-3 py-2 text-xs font-bold leading-relaxed border-2 bg-red-50 border-red-300 text-red-800">
+            {String(order.delivery_status || '').toLowerCase() === 'expired'
+              ? (language === 'th' ? '❌ Lalamove หาไรเดอร์ไม่ได้ (หมดเวลา)' : '❌ Lalamove found no rider (expired)')
+              : (language === 'th' ? '❌ งาน Lalamove ถูกยกเลิก (ไรเดอร์หรือ Lalamove ยกเลิก)' : '❌ The Lalamove job was cancelled')}
+            <br />
+            {language === 'th' ? 'ถ้ายังต้องส่งออเดอร์นี้ กดปุ่มด้านล่างแล้วเรียกไรเดอร์ใหม่ (ลูกค้าได้รับแจ้งทาง LINE แล้ว)' : 'If this order still needs delivery, re-book below (the customer was notified on LINE).'}
+          </div>
+          <button
+            type="button"
+            onClick={clearBookingFields}
+            className="w-full py-2 rounded bg-orange-600 text-white hover:bg-orange-700 text-sm font-extrabold shadow-sm transition active:scale-95"
+          >
+            {language === 'th' ? '🔄 เรียกไรเดอร์ใหม่' : '🔄 Book a new rider'}
+          </button>
+        </div>
       ) : status === 'none' ? (
         // QUOTE AND BOOKING VIEW
         <div className="space-y-2.5">
@@ -401,13 +434,15 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
                 {language === 'th' ? 'สถานะจัดส่ง' : 'Dispatch Status'}
               </span>
               <span className={`px-2 py-0.5 rounded text-sm font-extrabold uppercase ${
-                status === 'assigned' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                status === 'finding' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
                 status === 'picking_up' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
                 status === 'in_transit' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
                 'bg-emerald-50 text-emerald-700 border border-emerald-200'
               }`}>
-                {status === 'assigned' && (language === 'th' ? 'จับคู่ไรเดอร์แล้ว' : 'Rider Assigned')}
-                {status === 'picking_up' && (language === 'th' ? 'กำลังมารับสินค้า' : 'Rider Picking Up')}
+                {status === 'finding' && (String(order.delivery_status || '').toLowerCase() === 'rejected'
+                  ? (language === 'th' ? 'ไรเดอร์ยกเลิก กำลังหาคนใหม่' : 'Re-matching rider')
+                  : (language === 'th' ? 'กำลังหาไรเดอร์' : 'Finding Rider'))}
+                {status === 'picking_up' && (language === 'th' ? 'ได้ไรเดอร์แล้ว กำลังมารับ' : 'Rider Coming')}
                 {status === 'in_transit' && (language === 'th' ? 'กำลังนำส่งสินค้า' : 'In Transit')}
                 {status === 'completed' && (language === 'th' ? 'ส่งสำเร็จแล้ว' : 'Delivered')}
               </span>
@@ -417,8 +452,8 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
             <div className="relative pt-1">
               <div className="flex mb-2 items-center justify-between">
                 <div className="flex flex-col items-center">
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-sm font-bold ${status !== 'none' ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-500'}`}>1</div>
-                  <span className="text-xs font-bold mt-1 text-gray-500">{language === 'th' ? 'จับคู่' : 'Match'}</span>
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-sm font-bold ${status === 'finding' ? 'bg-blue-500 text-white animate-pulse' : 'bg-emerald-500 text-white'}`}>1</div>
+                  <span className="text-xs font-bold mt-1 text-gray-500">{language === 'th' ? 'หาไรเดอร์' : 'Match'}</span>
                 </div>
                 <div className="flex-1 border-t-2 border-dashed border-gray-200 mx-1"></div>
                 <div className="flex flex-col items-center">
@@ -438,6 +473,13 @@ export default function LalamoveDispatchPanel({ order, updateOrderFields, langua
               </div>
             </div>
           </div>
+
+          {order.lalamove_share_link && (
+            <a href={order.lalamove_share_link} target="_blank" rel="noopener noreferrer"
+               className="block text-center w-full py-2 rounded bg-blue-600 text-white hover:bg-blue-700 text-sm font-extrabold shadow-sm transition active:scale-95">
+              {language === 'th' ? '📍 ดูตำแหน่งไรเดอร์ / ลิงก์ติดตาม Lalamove' : '📍 Track rider (Lalamove link)'}
+            </a>
+          )}
 
           {/* Rider Info Card */}
           <div className="bg-white rounded-lg p-3 border border-orange-200/50 space-y-2">

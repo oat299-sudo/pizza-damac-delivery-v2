@@ -1,4 +1,4 @@
--- v1.5.2 — APPLIED to the live database on 2026-09-25 (migration v1_5_2_service_role_is_staff).
+-- App v1.6.0 — APPLIED to the live database on 2026-09-25 (migration v1_5_2_service_role_is_staff).
 -- The Cloud Run server calls Supabase with the SERVICE ROLE key, which has no auth.uid(),
 -- so v1.5.0 treated it as anonymous: LINE account linking was silently ignored and
 -- LINE delivery notifications never found the customer's line_user_id.
