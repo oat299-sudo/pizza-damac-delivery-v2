@@ -5213,7 +5213,7 @@ export const POSView: React.FC = () => {
                                         <input type="text" className="w-full border-2 border-gray-200 rounded-xl px-4 py-2 mt-1 font-bold text-gray-700 focus:border-brand-500 outline-none" value={contactForm.lineUrl} onChange={e => setContactForm({...contactForm, lineUrl: e.target.value})} />
                                      </div>
                                 </div>
-                                <button onClick={() => { updateStoreSettings(contactForm); alert("Contact Settings Saved!"); }} className="mt-4 bg-gray-800 text-white font-bold py-2 px-6 rounded-xl hover:bg-gray-900 shadow transition w-full lg:w-auto">Save Contact Settings</button>
+                                <button onClick={async () => { if (await updateStoreSettings(contactForm)) alert("Contact Settings Saved!"); }} className="mt-4 bg-gray-800 text-white font-bold py-2 px-6 rounded-xl hover:bg-gray-900 shadow transition w-full lg:w-auto">Save Contact Settings</button>
                             </div>
 
                             {/* Delivery Settings */}
@@ -5261,8 +5261,7 @@ export const POSView: React.FC = () => {
                                         setDeliveryForm({...deliveryForm, storeLocationGps: resolvedGps});
                                     }
                                     
-                                    await updateStoreSettings({...deliveryForm, storeLocationGps: resolvedGps}); 
-                                    alert("Delivery Settings Saved!"); 
+                                    if (await updateStoreSettings({...deliveryForm, storeLocationGps: resolvedGps})) alert("Delivery Settings Saved!"); 
                                 }} className="mt-4 bg-gray-800 text-white font-bold py-2 px-6 rounded-xl hover:bg-gray-900 shadow transition w-full lg:w-auto">Save Delivery Settings</button>
                             </div>
 
@@ -5330,8 +5329,8 @@ export const POSView: React.FC = () => {
                                 </div>
                                 <button 
                                     onClick={async () => { 
-                                        await updateStoreSettings(storeStatusForm); 
-                                        alert(language === 'th' ? "บันทึกการตั้งค่าร้านสำเร็จ!" : "Store Status Settings Saved!"); 
+                                        if (await updateStoreSettings(storeStatusForm))
+                                            alert(language === 'th' ? "บันทึกการตั้งค่าร้านสำเร็จ!" : "Store Status Settings Saved!"); 
                                     }} 
                                     className="mt-4 bg-gray-800 hover:bg-gray-900 text-white font-bold py-2 px-6 rounded-xl shadow transition w-full lg:w-auto"
                                 >
