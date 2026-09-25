@@ -1,4 +1,4 @@
--- v1.5.1 — APPLIED to the live database on 2026-09-25 (migration v1_5_1_guest_pickup_edit_key).
+-- App v1.6.0 — APPLIED to the live database on 2026-09-25 (migration v1_5_1_guest_pickup_edit_key).
 -- 1) Guest orders get a secret "edit key" so the browser that placed the order (and only it)
 --    can switch it to pickup. Guests have no phone, so the v1.5.0 phone check always blocked them.
 -- 2) Anonymous callers can no longer overwrite another customer's saved addresses via loyalty_update

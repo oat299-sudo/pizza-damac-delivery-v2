@@ -1,4 +1,4 @@
--- v1.5.3 — APPLIED to the live database on 2026-09-25 (migration v1_5_3_track_orders_service_role).
+-- App v1.7.0 — APPLIED to the live database on 2026-09-25 (migration v1_5_3_track_orders_service_role).
 -- /api/line/notify (kitchen "cooking"/"ready" LINE messages) reads the order via track_orders with the
 -- SERVICE ROLE key. Since v1.5.0 the phone came back masked (081xxxxx78), so the customer's LINE was
 -- never found and those messages were not sent. The server's service role now sees the full row, like staff.
