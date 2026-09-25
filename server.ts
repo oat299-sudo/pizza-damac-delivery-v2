@@ -189,7 +189,7 @@ async function startServer() {
       if (event === 'ready') {
         text = order.type === 'pickup'
           ? `✅ ออเดอร์ #${shortId} พร้อมแล้วครับ! มารับได้เลยที่ร้าน Pizza Damac 🍕`
-          : `✅ ออเดอร์ #${shortId} ของคุณพร้อมแล้วครับ 🍕`;
+          : `✅ พิซซ่าออเดอร์ #${shortId} อบเสร็จแล้วครับ 🍕 เตรียมส่งให้ไรเดอร์`;
       } else if (event === 'cooking') {
         // Explicitly confirm BOTH the order and the payment (Oat's request):
         // QR/transfer orders = shop verified the money; cash = pay on receive.
@@ -422,6 +422,14 @@ async function startServer() {
   });
 
   // Supabase for webhook (need standard createClient since it's backend)
+  // Remembers which delivery LINE messages were already sent ("orderId:STATUS" -> time).
+  // In memory only: a restart or a second Cloud Run instance can at worst send a repeat.
+  const deliveryNotified = new Map<string, number>();
+  setInterval(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [k, t] of deliveryNotified) if (t < cutoff) deliveryNotified.delete(k);
+  }, 60 * 60 * 1000).unref();
+
   app.post("/api/webhook/lalamove", async (req, res) => {
     try {
       console.log('Lalamove Webhook Event:', req.body);
@@ -507,10 +515,39 @@ async function startServer() {
                     // Include Lalamove's live-tracking share link so the customer
                     // can watch the rider on the map in real time.
                     const trackLine = row.lalamove_share_link ? `\n📍 ดูตำแหน่งไรเดอร์แบบสด: ${row.lalamove_share_link}` : '';
-                    if (status === 'PICKED_UP' || status === 'ON_GOING') {
-                        await lineNotifyByPhone(row.customer_phone, `🛵 ไรเดอร์รับออเดอร์ #${sid} แล้ว กำลังนำไปส่งครับ!${trackLine}`);
+                    const oid = String(row.order_id || '');
+                    let msg = '';
+                    if (status === 'ASSIGNING_DRIVER') {
+                        msg = `🔎 ออเดอร์ #${sid} กำลังหาไรเดอร์มารับพิซซ่าให้ครับ`;
+                    } else if (status === 'ON_GOING') {
+                        msg = `🛵 ได้ไรเดอร์แล้วครับ! กำลังเดินทางมารับออเดอร์ #${sid} ที่ร้าน${trackLine}`;
+                        // a rider is on the way again: a later cancel/reject should be announced again
+                        ['REJECTED', 'EXPIRED', 'CANCELED'].forEach(st => deliveryNotified.delete(`${oid}:${st}`));
+                    } else if (status === 'PICKED_UP') {
+                        msg = `🍕 ไรเดอร์รับออเดอร์ #${sid} แล้ว กำลังนำไปส่งให้ครับ!${trackLine}`;
                     } else if (status === 'COMPLETED') {
-                        await lineNotifyByPhone(row.customer_phone, `📦 ออเดอร์ #${sid} ส่งถึงเรียบร้อยครับ ขอบคุณที่อุดหนุน Pizza Damac 🍕`);
+                        msg = `📦 ออเดอร์ #${sid} ส่งถึงเรียบร้อยครับ ขอบคุณที่อุดหนุน Pizza Damac 🍕`;
+                    } else if (status === 'REJECTED' || status === 'EXPIRED') {
+                        msg = status === 'REJECTED'
+                            ? `⏳ ขออภัยครับ ไรเดอร์คนเดิมไม่สามารถรับงานได้ กำลังหาไรเดอร์คนใหม่ให้ออเดอร์ #${sid} ครับ`
+                            : `⏳ ขออภัยครับ ตอนนี้ยังหาไรเดอร์ไม่ได้ ร้านกำลังเรียกไรเดอร์ใหม่ให้ออเดอร์ #${sid} ครับ`;
+                        // a new rider will be assigned: allow the "rider found" message again
+                        deliveryNotified.delete(`${oid}:ON_GOING`);
+                    } else if (status === 'CANCELED') {
+                        // The rider or Lalamove cancelled the booking. Skip it when the shop cancelled on purpose:
+                        // the order was switched to pickup, or the order itself is cancelled/finished.
+                        const cur = await supaRpc('track_orders', { p_ids: [oid], p_phone: null });
+                        const o = Array.isArray(cur) ? cur[0] : null;
+                        if (o && o.type === 'delivery' && !['cancelled', 'completed'].includes(String(o.status))) {
+                            msg = `⏳ ขออภัยครับ ไรเดอร์ยกเลิกงาน ร้านกำลังเรียกไรเดอร์คนใหม่ให้ออเดอร์ #${sid} ครับ`;
+                            deliveryNotified.delete(`${oid}:ON_GOING`);
+                        }
+                    }
+                    // Lalamove can repeat a status (e.g. ASSIGNING_DRIVER); send each message once per order
+                    const key = `${oid}:${status}`;
+                    if (msg && !deliveryNotified.has(key)) {
+                        deliveryNotified.set(key, Date.now());
+                        await lineNotifyByPhone(row.customer_phone, msg);
                     }
                 }
             } catch (e) { console.warn('LINE delivery notify error', e); }
