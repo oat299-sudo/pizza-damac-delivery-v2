@@ -108,7 +108,7 @@ interface StoreContextType {
   closedMessage: string;
   storeSettings: StoreSettings;
   toggleStoreStatus: (isOpen: boolean, message?: string) => Promise<void>;
-  updateStoreSettings: (settings: Partial<StoreSettings>) => Promise<void>;
+  updateStoreSettings: (settings: Partial<StoreSettings>) => Promise<boolean>;
   generateTimeSlots: (dateOffset?: number) => string[];
   canOrderForToday: () => boolean;
 
@@ -1905,9 +1905,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                    available: d.available,
                    badge: savedLocal?.badge || local?.badge || d.badge || '',
                    badgeTh: savedLocal?.badgeTh || local?.badgeTh || d.badge_th || '',
-                   rawCost: d.raw_cost !== undefined ? d.raw_cost : (savedLocal?.rawCost || local?.rawCost || 0),
-                   grabPrice: d.grab_price !== undefined ? d.grab_price : (savedLocal?.grabPrice || d.base_price || local?.grabPrice || d.base_price),
-                   linemanPrice: d.lineman_price !== undefined ? d.lineman_price : (savedLocal?.linemanPrice || d.base_price || local?.linemanPrice || d.base_price)
+                   rawCost: d.raw_cost != null ? Number(d.raw_cost) : (savedLocal?.rawCost || local?.rawCost || 0),
+                   grabPrice: d.grab_price != null ? Number(d.grab_price) : (savedLocal?.grabPrice || d.base_price || local?.grabPrice || d.base_price),
+                   linemanPrice: d.lineman_price != null ? Number(d.lineman_price) : (savedLocal?.linemanPrice || d.base_price || local?.linemanPrice || d.base_price)
                };
            });
 
@@ -2251,17 +2251,24 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, []);
 
   // Actions
+  // Tell staff when the database refused a save (it used to fail silently and revert on refresh)
+  const alertSaveFailed = (what: string, error: any) => {
+      console.error(`Save failed (${what}):`, error);
+      alert(`❌ บันทึก${what}ไม่สำเร็จ กรุณาลองใหม่ หรือแจ้งผู้ดูแลระบบ\nSave failed: ${error?.message || error}`);
+  };
+
   const addPizza = async (pizza: Pizza) => {
       if (isSupabaseConfigured) {
           try {
-            await supabase.from('menu_items').insert([{
+            const { error } = await supabase.from('menu_items').insert([{
                 id: pizza.id, name: pizza.name, name_th: pizza.nameTh, 
                 description: pizza.description, description_th: pizza.descriptionTh,
                 base_price: pizza.basePrice, image: pizza.image, available: pizza.available, category: pizza.category,
                 combo_count: pizza.comboCount, is_best_seller: pizza.isBestSeller || false,
                 raw_cost: pizza.rawCost, grab_price: pizza.grabPrice, lineman_price: pizza.linemanPrice
             }]);
-          } catch (e) { console.error(e); }
+            if (error) { alertSaveFailed('เมนู', error); return; }
+          } catch (e) { alertSaveFailed('เมนู', e); return; }
       } 
       // Always update local state for immediate feedback
       setMenu(prev => [...prev, pizza]);
@@ -2269,7 +2276,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const updatePizza = async (pizza: Pizza) => {
       if (isSupabaseConfigured) {
           try {
-            await supabase.from('menu_items').upsert({
+            const { error } = await supabase.from('menu_items').upsert({
                 id: pizza.id,
                 name: pizza.name, name_th: pizza.nameTh, 
                 description: pizza.description, description_th: pizza.descriptionTh,
@@ -2277,7 +2284,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 combo_count: pizza.comboCount, is_best_seller: pizza.isBestSeller || false,
                 raw_cost: pizza.rawCost, grab_price: pizza.grabPrice, lineman_price: pizza.linemanPrice
             });
-          } catch(e) { console.error(e); }
+            if (error) { alertSaveFailed('เมนู', error); return; }
+          } catch(e) { alertSaveFailed('เมนู', e); return; }
       }
       // Always update local
       setMenu(prev => {
@@ -2291,7 +2299,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
   const deletePizza = async (id: string) => {
       if (isSupabaseConfigured) {
-          try { await supabase.from('menu_items').delete().eq('id', id); } catch(e) { console.error(e); }
+          try {
+              const { error } = await supabase.from('menu_items').delete().eq('id', id);
+              if (error) { alertSaveFailed('การลบเมนู', error); return; }
+          } catch(e) { alertSaveFailed('การลบเมนู', e); return; }
       }
       setMenu(prev => prev.filter(p => p.id !== id));
   };
@@ -2370,11 +2381,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const addTopping = async (topping: Topping) => {
       if (isSupabaseConfigured) {
           try {
-            await supabase.from('toppings').insert([{
+            const { error } = await supabase.from('toppings').insert([{
                 id: topping.id, name: topping.name, name_th: topping.nameTh, price: topping.price, 
-                category: topping.category, image: topping.image, available: topping.available
+                category: topping.category, image: topping.image, available: topping.available !== false
             }]);
-          } catch(e) { console.error(e); }
+            if (error) { alertSaveFailed('ท็อปปิ้ง', error); return; }
+          } catch(e) { alertSaveFailed('ท็อปปิ้ง', e); return; }
       }
       setToppings(prev => [...prev, topping]);
   };
@@ -2382,18 +2394,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const updateTopping = async (topping: Topping) => {
       if (isSupabaseConfigured) {
           try {
-            await supabase.from('toppings').update({
+            const { error } = await supabase.from('toppings').update({
                 name: topping.name, name_th: topping.nameTh, price: topping.price, 
-                category: topping.category, image: topping.image, available: topping.available
+                category: topping.category, image: topping.image, available: topping.available !== false
             }).eq('id', topping.id);
-          } catch(e) { console.error(e); }
+            if (error) { alertSaveFailed('ท็อปปิ้ง', error); return; }
+          } catch(e) { alertSaveFailed('ท็อปปิ้ง', e); return; }
       }
       setToppings(prev => prev.map(t => t.id === topping.id ? topping : t));
   };
 
   const deleteTopping = async (id: string) => {
       if (isSupabaseConfigured) {
-          try { await supabase.from('toppings').delete().eq('id', id); } catch(e) { console.error(e); }
+          try {
+              const { error } = await supabase.from('toppings').delete().eq('id', id);
+              if (error) { alertSaveFailed('การลบท็อปปิ้ง', error); return; }
+          } catch(e) { alertSaveFailed('การลบท็อปปิ้ง', e); return; }
       }
       setToppings(prev => prev.filter(t => t.id !== id));
   };
@@ -4061,7 +4077,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setStoreSettings(prev => ({ ...prev, isOpen, closedMessage: message || prev.closedMessage }));
   };
 
-  const updateStoreSettings = async (settings: Partial<StoreSettings>) => {
+  const updateStoreSettings = async (settings: Partial<StoreSettings>): Promise<boolean> => {
       if (isSupabaseConfigured) {
           // Map camelCase to snake_case for DB
           const payload: any = {};
@@ -4089,13 +4105,17 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           if (settings.baseDeliveryFee !== undefined) payload.base_delivery_fee = settings.baseDeliveryFee;
 
           if (Object.keys(payload).length > 0) {
-             const { error } = await supabase.from('store_settings').update(payload).eq('id', 1);
-             if (error) {
-                 await supabase.from('store_settings').insert([{ id: 1, ...payload }]);
+             const { data: updated, error } = await supabase.from('store_settings').update(payload).eq('id', 1).select('id');
+             if (error) { alertSaveFailed('การตั้งค่าร้าน', error); return false; }
+             if (!updated || updated.length === 0) {
+                 // first run: the settings row does not exist yet
+                 const { error: insErr } = await supabase.from('store_settings').insert([{ id: 1, ...payload }]);
+                 if (insErr) { alertSaveFailed('การตั้งค่าร้าน', insErr); return false; }
              }
           }
       }
       setStoreSettings(prev => ({ ...prev, ...settings }));
+      return true;
   };
   
   const generateTimeSlots = (dateOffset: number = 0) => {
