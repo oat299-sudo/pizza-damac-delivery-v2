@@ -56,6 +56,11 @@ Cloud Build จะ build + deploy ขึ้น Cloud Run อัตโนมั�
 Google Cloud Console → Cloud Build → History (โปรเจกต์ `pizza-damac-delivery`)
 
 ### ขั้น 4 — สร้าง Release บน GitHub (ปักหมุดเวอร์ชัน)
+
+> **อัตโนมัติแล้ว (ตั้งแต่ v1.8.0):** เมื่อ merge ที่เปลี่ยนเลขใน `package.json` เข้า `main` → GitHub Actions (`.github/workflows/release.yml`) สร้าง Release + tag `vX.Y.Z` ให้เอง โดยใช้ข้อความจากหัวข้อเวอร์ชันนั้นใน `CHANGELOG.md`
+> ถ้าต้องสร้างย้อนหลัง: แท็บ **Actions** → **Release** → **Run workflow** → ใส่เลขเวอร์ชัน (เช่น `1.6.0`) + commit
+> ขั้นตอนด้านล่างใช้เฉพาะกรณีอยากสร้างเองด้วยมือ
+
 1. ไปที่ https://github.com/oat299-sudo/pizza-damac-delivery-v2/releases/new
 2. **Choose a tag** → พิมพ์ `v1.2.0` (ตัว v นำหน้า) → เลือก "Create new tag"
 3. **Release title** → `v1.2.0 — <สรุปสั้น ๆ 1 ประโยค>`

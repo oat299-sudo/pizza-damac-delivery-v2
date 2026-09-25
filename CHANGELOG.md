@@ -11,7 +11,8 @@
 
 ## [Unreleased]
 
-_ยังไม่มี — รายการที่แก้แล้วแต่ยังไม่ออกเวอร์ชัน ให้จดไว้ตรงนี้ก่อน_
+### Added
+- **สร้าง GitHub Release อัตโนมัติ** (`.github/workflows/release.yml`) — merge ที่เปลี่ยนเลขใน `package.json` เข้า `main` → GitHub สร้าง Release + tag `vX.Y.Z` ให้เอง พร้อมข้อความจาก CHANGELOG · สร้างย้อนหลังได้ที่แท็บ Actions → Release → Run workflow (วิธีใช้ใน `VERSIONING.md` ขั้น 4)
 
 ---
 
